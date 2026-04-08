@@ -13,7 +13,7 @@ interface Contact {
   tags: { tag: string }[]
 }
 
-const STATUSES = ['Active', 'Pending Response', 'Meeting Scheduled', 'Follow Up Needed', 'Dormant']
+const STATUSES = ['Active', 'Warm', 'Cold', 'Dormant']
 const ROLES = ['Operator', 'Investor', 'Consultant']
 
 export default function ContactsPage() {
@@ -66,6 +66,12 @@ export default function ContactsPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
           <div className="flex gap-3">
+            <Link
+              href="/"
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
+            >
+              Command Center
+            </Link>
             <Link
               href="/import"
               className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
@@ -182,10 +188,10 @@ export default function ContactsPage() {
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                         c.status === 'Active' ? 'bg-green-100 text-green-800' :
+                        c.status === 'Warm' ? 'bg-yellow-100 text-yellow-800' :
+                        c.status === 'Cold' ? 'bg-blue-100 text-blue-800' :
                         c.status === 'Dormant' ? 'bg-gray-100 text-gray-600' :
-                        c.status === 'Follow Up Needed' ? 'bg-yellow-100 text-yellow-800' :
-                        c.status === 'Meeting Scheduled' ? 'bg-blue-100 text-blue-800' :
-                        'bg-orange-100 text-orange-800'
+                        'bg-gray-100 text-gray-600'
                       }`}>
                         {c.status || '—'}
                       </span>

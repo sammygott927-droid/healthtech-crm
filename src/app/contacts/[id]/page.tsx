@@ -34,7 +34,7 @@ interface Contact {
   notes: Note[]
 }
 
-const STATUSES = ['Active', 'Pending Response', 'Meeting Scheduled', 'Follow Up Needed', 'Dormant']
+const STATUSES = ['Active', 'Warm', 'Cold', 'Dormant']
 
 function getFollowUpLabel(lastContact: string | null, cadenceDays: number): { text: string; color: string } {
   if (!lastContact) return { text: 'No contact date set', color: 'text-gray-400' }

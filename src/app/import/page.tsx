@@ -38,7 +38,23 @@ export default function ImportPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="mx-auto max-w-xl">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Import Contacts</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Import Contacts</h1>
+          <div className="flex gap-3">
+            <Link
+              href="/"
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
+            >
+              Command Center
+            </Link>
+            <Link
+              href="/contacts"
+              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
+            >
+              Contacts
+            </Link>
+          </div>
+        </div>
 
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-sm text-gray-600 mb-4">

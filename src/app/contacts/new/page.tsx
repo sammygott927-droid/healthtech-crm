@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 const ROLES = ['Operator', 'Investor', 'Consultant']
-const STATUSES = ['Active', 'Pending Response', 'Meeting Scheduled', 'Follow Up Needed', 'Dormant']
+const STATUSES = ['Active', 'Warm', 'Cold', 'Dormant']
 
 export default function NewContactPage() {
   const router = useRouter()

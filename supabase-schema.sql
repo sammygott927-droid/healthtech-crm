@@ -9,7 +9,7 @@ create table contacts (
   company text,
   sector text,
   referral_source text,
-  status text default 'Active' check (status in ('Active', 'Pending Response', 'Meeting Scheduled', 'Follow Up Needed', 'Dormant')),
+  status text default 'Active' check (status in ('Active', 'Warm', 'Cold', 'Dormant')),
   next_step text,
   email text,
   phone text,
