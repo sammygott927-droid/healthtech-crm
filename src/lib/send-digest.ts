@@ -6,14 +6,18 @@ interface ArticleItem {
   summary: string
 }
 
+interface EmailOption {
+  label: string
+  full_email: string
+}
+
 interface CompanyDigestItem {
   company: string
   contact_name: string
   articles: ArticleItem[]
   synthesis: string
   relevance: string
-  modular_emails: string[]
-  combined_email: string
+  email_options: EmailOption[]
 }
 
 interface FollowUpContact {
@@ -90,6 +94,13 @@ function buildEmailHtml(
         </div>
       `).join('')
 
+      const optionsHtml = item.email_options.map((opt) => `
+        <div style="background: #eff6ff; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+          <p style="font-size: 11px; font-weight: 700; color: #1e40af; margin: 0 0 6px 0;">${escapeHtml(opt.label)}</p>
+          <p style="font-size: 13px; color: #374151; margin: 0; white-space: pre-wrap;">${escapeHtml(opt.full_email)}</p>
+        </div>
+      `).join('')
+
       return `
         <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
           <div style="margin-bottom: 8px;">
@@ -103,8 +114,8 @@ function buildEmailHtml(
             <p style="font-size: 13px; color: #374151; margin: 0;">${escapeHtml(item.synthesis)}</p>
           </div>
           <div style="border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 10px;">
-            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 6px 0;">DRAFT EMAIL</p>
-            <p style="font-size: 13px; color: #374151; margin: 0; white-space: pre-wrap;">${escapeHtml(item.combined_email)}</p>
+            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 6px 0;">DRAFT EMAIL OPTIONS</p>
+            ${optionsHtml}
           </div>
         </div>
       `

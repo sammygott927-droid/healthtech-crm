@@ -14,6 +14,71 @@ function getAnthropic() {
   return new Anthropic({ apiKey: key })
 }
 
+// Source reputation tiers for deduplication
+const SOURCE_TIERS: Record<string, number> = {
+  'stat news': 1, 'statnews': 1, 'techcrunch': 1, 'wsj': 1, 'wall street journal': 1,
+  'bloomberg': 1, 'modern healthcare': 1, 'fierce healthcare': 1, 'medcity news': 1,
+  'axios': 2, 'forbes': 2, 'business insider': 2,
+  'pr newswire': 3, 'globenewswire': 3, 'businesswire': 3, 'business wire': 3, 'finsmes': 3,
+}
+
+function getSourceTier(source: string): number {
+  const lower = source.toLowerCase().trim()
+  for (const [name, tier] of Object.entries(SOURCE_TIERS)) {
+    if (lower.includes(name)) return tier
+  }
+  return 2 // Default to Tier 2 for unknown sources
+}
+
+// Deduplicate articles covering the same story, keeping the most reputable source
+function deduplicateArticles(articles: NewsItem[]): NewsItem[] {
+  // Group by rough similarity — articles about the same event share key terms
+  const groups: { representative: NewsItem; tier: number; members: NewsItem[] }[] = []
+
+  for (const article of articles) {
+    const titleWords = new Set(
+      article.title.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 3)
+    )
+
+    let matched = false
+    for (const group of groups) {
+      const groupWords = new Set(
+        group.representative.title.toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .filter(w => w.length > 3)
+      )
+      // Check overlap — if >50% of words match, it's the same story
+      const overlap = [...titleWords].filter(w => groupWords.has(w)).length
+      const similarity = overlap / Math.min(titleWords.size, groupWords.size)
+
+      if (similarity > 0.5) {
+        group.members.push(article)
+        const articleTier = getSourceTier(article.source)
+        if (articleTier < group.tier) {
+          group.representative = article
+          group.tier = articleTier
+        }
+        matched = true
+        break
+      }
+    }
+
+    if (!matched) {
+      groups.push({
+        representative: article,
+        tier: getSourceTier(article.source),
+        members: [article],
+      })
+    }
+  }
+
+  return groups.map(g => g.representative)
+}
+
 interface ContactWithTags {
   id: string
   name: string
@@ -29,7 +94,7 @@ interface CompanySlot {
   company: string
   contacts: ContactWithTags[]
   articles: NewsItem[]
-  statusBoost: number // higher = better ranking
+  statusBoost: number
 }
 
 // GET handler for Vercel Cron
@@ -53,7 +118,7 @@ async function runDailyBrief(request: NextRequest) {
       return NextResponse.json({ message: 'No contacts to search for', items: [] })
     }
 
-    // Step 2: Build company → contacts map (deduplicate companies)
+    // Step 2: Build company → contacts map
     const companyMap = new Map<string, ContactWithTags[]>()
     for (const contact of contacts) {
       if (!contact.company) continue
@@ -62,7 +127,6 @@ async function runDailyBrief(request: NextRequest) {
       companyMap.get(key)!.push(contact as ContactWithTags)
     }
 
-    // Also collect tag-based search terms mapped to contacts
     const tagSearchTerms = new Map<string, ContactWithTags[]>()
     for (const contact of contacts) {
       for (const t of (contact.tags || [])) {
@@ -72,59 +136,58 @@ async function runDailyBrief(request: NextRequest) {
       }
     }
 
-    // Step 3: Fetch news for companies first, then tags
+    // Step 3: Fetch news
     const companySlots = new Map<string, CompanySlot>()
 
-    // Search by company names (prioritized)
     const companyNames = Array.from(companyMap.keys()).slice(0, 15)
     for (const companyKey of companyNames) {
-      const newsItems = await fetchGoogleNews(companyKey, 5)
+      const newsItems = await fetchGoogleNews(companyKey, 8) // Fetch more to allow for dedup
       if (newsItems.length === 0) continue
 
       const companyContacts = companyMap.get(companyKey)!
       const displayName = companyContacts[0].company || companyKey
-
-      // Status boost: Active=2, Warm=1, else 0
       const bestStatus = companyContacts.reduce((best, c) => {
         const score = c.status === 'Active' ? 2 : c.status === 'Warm' ? 1 : 0
         return Math.max(best, score)
       }, 0)
 
+      // Deduplicate articles by same story, keeping best source
+      const deduped = deduplicateArticles(newsItems)
+
       companySlots.set(companyKey, {
         company: displayName,
         contacts: companyContacts,
-        articles: newsItems,
+        articles: deduped.slice(0, 3), // Max 3 articles per company
         statusBoost: bestStatus,
       })
     }
 
-    // Search by tags (fill remaining slots)
     const tagTerms = Array.from(tagSearchTerms.keys()).slice(0, 10)
     for (const tag of tagTerms) {
       const newsItems = await fetchGoogleNews(tag, 3)
       if (newsItems.length === 0) continue
 
       const tagContacts = tagSearchTerms.get(tag)!
-      // Group these articles under the contact's company if possible
       for (const contact of tagContacts) {
         if (!contact.company) continue
         const key = contact.company.toLowerCase().trim()
         if (companySlots.has(key)) {
-          // Add articles to existing company slot (deduplicate by URL)
           const slot = companySlots.get(key)!
-          const existingUrls = new Set(slot.articles.map(a => a.link))
-          for (const item of newsItems) {
-            if (!existingUrls.has(item.link)) {
-              slot.articles.push(item)
-              existingUrls.add(item.link)
-            }
-          }
+          const combined = [...slot.articles, ...newsItems]
+          const existingUrls = new Set<string>()
+          const unique = combined.filter(a => {
+            if (existingUrls.has(a.link)) return false
+            existingUrls.add(a.link)
+            return true
+          })
+          slot.articles = deduplicateArticles(unique).slice(0, 3)
         } else {
           const bestStatus = contact.status === 'Active' ? 2 : contact.status === 'Warm' ? 1 : 0
+          const deduped = deduplicateArticles(newsItems)
           companySlots.set(key, {
             company: contact.company,
             contacts: [contact],
-            articles: newsItems,
+            articles: deduped.slice(0, 3),
             statusBoost: bestStatus,
           })
         }
@@ -135,16 +198,7 @@ async function runDailyBrief(request: NextRequest) {
       return NextResponse.json({ message: 'No news found', items: [] })
     }
 
-    // Step 4: Deduplicate against existing daily_briefs
-    const { data: existing } = await supabase
-      .from('daily_briefs')
-      .select('company')
-
-    const existingCompanies = new Set(
-      existing?.map((e) => e.company?.toLowerCase().trim()) || []
-    )
-
-    // Filter out companies we've already briefed today
+    // Step 4: Filter out companies already briefed today
     const today = new Date()
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString()
     const { data: todayBriefs } = await supabase
@@ -156,16 +210,16 @@ async function runDailyBrief(request: NextRequest) {
       todayBriefs?.map((e) => e.company?.toLowerCase().trim()) || []
     )
 
-    // Step 5: Filter to eligible companies, take wider pool for AI scoring
+    // Step 5: Take wider pool for AI scoring
     const eligibleSlots = Array.from(companySlots.values())
       .filter(slot => !todayCompanies.has(slot.company.toLowerCase().trim()))
-      .slice(0, 12) // Analyze up to 12, then pick best 5 by AI relevance
+      .slice(0, 12)
 
     if (eligibleSlots.length === 0) {
       return NextResponse.json({ message: 'No new companies to brief', items: [] })
     }
 
-    // Step 6: AI analysis per company — analyze all eligible, then rank by relevance
+    // Step 6: AI analysis per company
     const allAnalyzed = []
     for (const slot of eligibleSlots) {
       const analysis = await analyzeCompanySlot(slot)
@@ -174,10 +228,7 @@ async function runDailyBrief(request: NextRequest) {
       }
     }
 
-    // Step 7: Rank by AI-determined relevance + status boost
-    // Relevance score: High=3, Medium=2, Low=1
-    // Status boost: Active=2, Warm=1, else 0
-    // Final score = relevance * 3 + status boost (relevance dominates)
+    // Step 7: Rank by AI relevance + status boost
     const results = allAnalyzed
       .sort((a, b) => {
         const relScore = { High: 3, Medium: 2, Low: 1 }
@@ -187,10 +238,10 @@ async function runDailyBrief(request: NextRequest) {
       })
       .slice(0, 5)
 
-    // Step 7: Store in daily_briefs (one row per company)
+    // Step 8: Store in daily_briefs
     const toInsert = results.map((r) => ({
       company: r.company,
-      headline: r.contact_name, // Store contact name in headline field
+      headline: r.contact_name,
       source_url: null,
       ai_summary: JSON.stringify({
         articles: r.articles,
@@ -199,8 +250,7 @@ async function runDailyBrief(request: NextRequest) {
       }),
       relevance: r.relevance,
       draft_email: JSON.stringify({
-        modular: r.modular_emails,
-        combined: r.combined_email,
+        options: r.email_options,
       }),
       contact_id: r.contact_id,
       status: 'New',
@@ -210,7 +260,7 @@ async function runDailyBrief(request: NextRequest) {
       await supabase.from('daily_briefs').insert(toInsert)
     }
 
-    // Step 8: Calculate follow-ups and send email
+    // Step 9: Calculate follow-ups and send email
     const allContacts = contacts || []
     const upcomingFollowUps = []
     const overdueFollowUps = []
@@ -237,8 +287,7 @@ async function runDailyBrief(request: NextRequest) {
       articles: r.articles,
       synthesis: r.synthesis,
       relevance: r.relevance,
-      modular_emails: r.modular_emails,
-      combined_email: r.combined_email,
+      email_options: r.email_options,
     }))
 
     const emailResult = await sendDailyDigest(digestItems, upcomingFollowUps, overdueFollowUps, appUrl)
@@ -262,14 +311,13 @@ async function analyzeCompanySlot(slot: CompanySlot) {
   const primaryContact = slot.contacts[0]
   const contactNames = [...new Set(slot.contacts.map(c => c.name))].join(', ')
 
-  // Get recent notes from all contacts at this company
   const allNotes = slot.contacts
     .flatMap(c => (c.notes || []).slice(0, 2))
     .map(n => n.summary)
     .slice(0, 4)
     .join('; ')
 
-  const articlesList = slot.articles.slice(0, 5).map((a, i) =>
+  const articlesList = slot.articles.map((a, i) =>
     `Article ${i + 1}:\n  Headline: ${a.title}\n  Source: ${a.source}\n  Date: ${a.pubDate}`
   ).join('\n\n')
 
@@ -281,6 +329,13 @@ async function analyzeCompanySlot(slot: CompanySlot) {
     ? 'Reference our past conversation naturally ("Since we last spoke about..." or "This reminded me of our conversation about...")'
     : 'Keep it warm but general ("I\'ve been following [company] and thought you\'d find this interesting...")'
 
+  const articleCount = slot.articles.length
+  const optionLabels = articleCount === 1
+    ? 'Generate 1 option based on the single article.'
+    : articleCount === 2
+    ? 'Generate 2 options (Option A and Option B), one per article.'
+    : 'Generate 3 options (Option A, Option B, and Option C), one per article.'
+
   const prompt = `You are a healthcare networking CRM assistant. Analyze these news articles about ${slot.company} for relevance to my contact(s).
 
 ARTICLES ABOUT ${slot.company.toUpperCase()}:
@@ -291,11 +346,15 @@ ${slot.contacts.map(c => `- ${c.name} (${c.role || 'Unknown role'}, ${c.sector |
 Tags: ${[...new Set(slot.contacts.flatMap(c => c.tags?.map(t => t.tag) || []))].join(', ') || 'None'}${notesContext}
 
 RELEVANCE SCORING — this is the most important field. Score based on how actionable and interesting the news is for a healthcare investor/operator networking context:
-- "High": News I could immediately use as a reason to reach out — funding rounds, acquisitions, executive moves, major partnerships, regulatory decisions that directly affect the contact's work. The kind of thing that makes someone say "I should email them about this today."
-- "Medium": Relevant industry trends, competitor activity, or sector developments worth knowing — good conversation fodder but not an urgent reason to reach out.
-- "Low": Tangentially related news, generic industry coverage, or press releases with little substance. Not worth a dedicated outreach.
+- "High": News I could immediately use as a reason to reach out — funding rounds, acquisitions, executive moves, major partnerships, regulatory decisions that directly affect the contact's work.
+- "Medium": Relevant industry trends, competitor activity, or sector developments worth knowing — good conversation fodder but not urgent.
+- "Low": Tangentially related news, generic industry coverage, or press releases with little substance.
 
-Quality matters more than quantity. One highly actionable article should score "High" even if it's the only article. Many generic articles should still score "Low."
+Quality matters more than quantity. One highly actionable article should score "High" even if it's the only article.
+
+DEDUPLICATION: If multiple articles cover the same event or announcement, keep only the one with the most substance. The articles provided have already been partially deduplicated, but if you notice remaining duplicates, collapse them into one entry.
+
+ARTICLE LIMIT: Return at most 3 articles, and only if they cover meaningfully different topics (e.g. a funding round vs. a regulatory change). If all articles are about the same topic, return only 1.
 
 Generate the following as JSON:
 {
@@ -308,18 +367,22 @@ Generate the following as JSON:
     }
   ],
   "synthesis": "One paragraph synthesizing all the articles together — what's the bigger picture for this company?",
-  "modular_emails": [
-    "One standalone substance line per article that could be used in an email (e.g., 'I saw that [company] just [news]. [Brief analytical take].')"
-  ],
-  "combined_email": "A complete personalized email weaving all the articles together. ${emailGuidance}. Add value with analytical takes. Make a soft ask (coffee, call, or just catching up). Tone: professional but personal, warm, not salesy. Sign off as Sammy."
+  "email_options": [
+    {
+      "label": "Option A: [angle name, e.g. Funding Round]",
+      "full_email": "A complete email: warm opener, one substance sentence about this specific article, soft ask (coffee/call/catching up), signed Sammy. ${emailGuidance}. Tone: professional but personal, warm, not salesy."
+    }
+  ]
 }
+
+EMAIL OPTIONS: ${optionLabels} Each option should be a complete, standalone email anchored on one article's angle. The label format is "Option A: [Angle Name]" where the angle name is 2-3 words describing the news type (e.g. "Funding Round", "Market Trend", "Competitive Landscape", "Leadership Change", "Regulatory Shift"). Each email: warm opener → one substance line → soft ask → signed Sammy.
 
 Return ONLY valid JSON, no other text.`
 
   try {
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -329,7 +392,6 @@ Return ONLY valid JSON, no other text.`
 
     const parsed = JSON.parse(match[0])
 
-    // Map article source URLs back
     const articlesWithUrls = (parsed.articles || []).map((a: { headline: string; source_url_index: number; summary: string }, i: number) => ({
       headline: a.headline,
       url: slot.articles[a.source_url_index ?? i]?.link || slot.articles[0]?.link || '',
@@ -344,8 +406,7 @@ Return ONLY valid JSON, no other text.`
       statusBoost: slot.statusBoost,
       articles: articlesWithUrls,
       synthesis: parsed.synthesis || '',
-      modular_emails: parsed.modular_emails || [],
-      combined_email: parsed.combined_email || '',
+      email_options: parsed.email_options || [],
     }
   } catch (err) {
     console.error(`AI analysis failed for "${slot.company}":`, err)

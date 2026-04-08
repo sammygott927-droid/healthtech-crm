@@ -16,24 +16,24 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Parse JSON fields for company-centric format
   const parsed = (data || []).map((item) => {
     let aiData = { articles: [], synthesis: '', contact_name: '' }
-    let emailData = { modular: [], combined: '' }
+    let emailData: { options?: { label: string; full_email: string }[]; modular?: string[]; combined?: string } = {}
 
     try {
       aiData = JSON.parse(item.ai_summary || '{}')
     } catch {
-      // Legacy format: plain text summary
       aiData = { articles: [], synthesis: item.ai_summary || '', contact_name: item.headline || '' }
     }
 
     try {
       emailData = JSON.parse(item.draft_email || '{}')
     } catch {
-      // Legacy format: plain text email
-      emailData = { modular: [], combined: item.draft_email || '' }
+      emailData = {}
     }
+
+    // Support new options format and legacy modular/combined format
+    const emailOptions = emailData.options || []
 
     return {
       id: item.id,
@@ -43,8 +43,7 @@ export async function GET() {
       relevance: item.relevance,
       articles: aiData.articles || [],
       synthesis: aiData.synthesis || '',
-      modular_emails: emailData.modular || [],
-      combined_email: emailData.combined || '',
+      email_options: emailOptions,
       created_at: item.created_at,
     }
   })

@@ -9,6 +9,11 @@ interface ArticleItem {
   summary: string
 }
 
+interface EmailOption {
+  label: string
+  full_email: string
+}
+
 interface CompanyBrief {
   id: string
   company: string | null
@@ -17,8 +22,7 @@ interface CompanyBrief {
   relevance: string | null
   articles: ArticleItem[]
   synthesis: string | null
-  modular_emails: string[]
-  combined_email: string | null
+  email_options: EmailOption[]
   created_at: string
 }
 
@@ -191,51 +195,32 @@ export default function HomePage() {
                         </div>
                       )}
 
-                      {/* Draft Email section (collapsible) */}
-                      {(item.combined_email || item.modular_emails.length > 0) && (
+                      {/* Draft Email Options (collapsible) */}
+                      {item.email_options.length > 0 && (
                         <div className="border-t border-gray-100 pt-3">
                           <button
                             onClick={() => toggleEmail(item.id)}
                             className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2 flex items-center gap-1"
                           >
-                            {expandedEmails.has(item.id) ? '▼' : '▶'} Draft Email
+                            {expandedEmails.has(item.id) ? '▼' : '▶'} Draft Emails ({item.email_options.length} option{item.email_options.length > 1 ? 's' : ''})
                           </button>
 
                           {expandedEmails.has(item.id) && (
                             <div className="space-y-3">
-                              {/* Modular lines */}
-                              {item.modular_emails.length > 0 && (
-                                <div>
-                                  <p className="text-xs font-medium text-gray-400 mb-1">Pick individual lines:</p>
-                                  {item.modular_emails.map((line, i) => (
-                                    <div key={i} className="flex items-start gap-2 mb-2">
-                                      <p className="text-sm text-gray-700 flex-1 bg-blue-50 rounded px-3 py-2">{line}</p>
-                                      <button
-                                        onClick={() => copyText(`${item.id}-mod-${i}`, line)}
-                                        className="text-xs bg-white border border-gray-300 px-2 py-1 rounded hover:bg-gray-50 text-gray-600 whitespace-nowrap mt-1"
-                                      >
-                                        {copiedId === `${item.id}-mod-${i}` ? 'Copied!' : 'Copy'}
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* Combined email */}
-                              {item.combined_email && (
-                                <div className="bg-gray-50 rounded p-3">
+                              {item.email_options.map((option, i) => (
+                                <div key={i} className="bg-blue-50 rounded-lg p-4">
                                   <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-medium text-gray-500">Combined Version</span>
+                                    <span className="text-xs font-semibold text-blue-800">{option.label}</span>
                                     <button
-                                      onClick={() => copyText(`${item.id}-combined`, item.combined_email!)}
-                                      className="text-xs bg-white border border-gray-300 px-3 py-1 rounded hover:bg-gray-50 text-gray-700"
+                                      onClick={() => copyText(`${item.id}-opt-${i}`, option.full_email)}
+                                      className="text-xs bg-white border border-blue-200 px-3 py-1 rounded hover:bg-blue-50 text-blue-700 font-medium"
                                     >
-                                      {copiedId === `${item.id}-combined` ? 'Copied!' : 'Copy'}
+                                      {copiedId === `${item.id}-opt-${i}` ? 'Copied!' : 'Copy'}
                                     </button>
                                   </div>
-                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{item.combined_email}</p>
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{option.full_email}</p>
                                 </div>
-                              )}
+                              ))}
                             </div>
                           )}
                         </div>
