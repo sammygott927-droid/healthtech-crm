@@ -92,8 +92,8 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-4xl">
+    <div className="p-8">
+      <div className="max-w-4xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -102,40 +102,20 @@ export default function HomePage() {
               {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
           </div>
-          <div className="flex gap-3">
-            <Link
-              href="/contacts"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Contacts
-            </Link>
-            <Link
-              href="/import"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Import
-            </Link>
-            <Link
-              href="/settings"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Settings
-            </Link>
-          </div>
         </div>
 
         {loading ? (
           <p className="text-center text-gray-400 py-12">Loading...</p>
         ) : (
           <>
-            {/* Section 1: Today's Brief — Company Cards */}
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
+            {/* Today's Brief */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Today&apos;s Brief</h2>
                 <button
                   onClick={runBrief}
                   disabled={runningBrief}
-                  className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   {runningBrief ? 'Running...' : 'Run Brief Now'}
                 </button>
@@ -148,8 +128,7 @@ export default function HomePage() {
               ) : (
                 <div className="space-y-5">
                   {briefs.map((item) => (
-                    <div key={item.id} className="border border-gray-200 rounded-lg p-5">
-                      {/* Company header */}
+                    <div key={item.id} className="border border-gray-200 rounded-lg p-5 hover:border-gray-300 transition-colors">
                       <div className="flex items-center gap-2 mb-3">
                         <h3 className="text-base font-semibold text-gray-900">{item.company}</h3>
                         <span className={`text-xs px-2 py-0.5 rounded font-medium ${relevanceColor(item.relevance)}`}>
@@ -157,7 +136,6 @@ export default function HomePage() {
                         </span>
                       </div>
 
-                      {/* Contact name */}
                       {item.contact_name && (
                         <p className="text-xs text-gray-500 mb-3">
                           Contact{item.contact_name.includes(',') ? 's' : ''}: {item.contact_id ? (
@@ -168,11 +146,10 @@ export default function HomePage() {
                         </p>
                       )}
 
-                      {/* Articles list */}
                       {item.articles.length > 0 && (
                         <div className="space-y-2 mb-3">
                           {item.articles.map((article, i) => (
-                            <div key={i} className="bg-gray-50 rounded p-3">
+                            <div key={i} className="bg-gray-50 rounded-lg p-3">
                               <a
                                 href={article.url || '#'}
                                 target="_blank"
@@ -187,7 +164,6 @@ export default function HomePage() {
                         </div>
                       )}
 
-                      {/* Synthesis paragraph */}
                       {item.synthesis && (
                         <div className="border-t border-gray-100 pt-3 mb-3">
                           <p className="text-xs font-medium text-gray-500 mb-1">Synthesis</p>
@@ -195,7 +171,6 @@ export default function HomePage() {
                         </div>
                       )}
 
-                      {/* Draft Email Options (collapsible) */}
                       {item.email_options.length > 0 && (
                         <div className="border-t border-gray-100 pt-3">
                           <button
@@ -231,8 +206,8 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Section 2: Follow-Up Reminders */}
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
+            {/* Follow-Up Reminders */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Follow-Up Reminders</h2>
               {upcoming.length === 0 ? (
                 <p className="text-sm text-gray-400">No follow-ups due in the next 7 days.</p>
@@ -260,8 +235,8 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* Section 3: Overdue Connections */}
-            <div className="bg-white rounded-lg shadow p-6">
+            {/* Overdue Connections */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Overdue Connections</h2>
               {overdue.length === 0 ? (
                 <p className="text-sm text-gray-400">All caught up! No overdue connections.</p>

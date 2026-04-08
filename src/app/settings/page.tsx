@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
 
 interface Settings {
   email: string
@@ -42,27 +41,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <div className="flex gap-3">
-            <Link
-              href="/"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Command Center
-            </Link>
-            <Link
-              href="/contacts"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Contacts
-            </Link>
-          </div>
-        </div>
+    <div className="p-8">
+      <div className="max-w-xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
 
-        <div className="bg-white rounded-lg shadow p-6 space-y-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -74,7 +57,7 @@ export default function SettingsPage() {
               value={settings.email}
               onChange={(e) => updateField('email', e.target.value)}
               placeholder="your@email.com"
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
             />
           </div>
 
@@ -88,7 +71,7 @@ export default function SettingsPage() {
               type="text"
               value={settings.briefTime}
               onChange={(e) => updateField('briefTime', e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
               disabled
             />
           </div>
@@ -105,7 +88,7 @@ export default function SettingsPage() {
                   type="number"
                   value={settings.cadenceInvestor}
                   onChange={(e) => updateField('cadenceInvestor', parseInt(e.target.value) || 0)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
                 />
               </div>
               <div>
@@ -114,7 +97,7 @@ export default function SettingsPage() {
                   type="number"
                   value={settings.cadenceOperator}
                   onChange={(e) => updateField('cadenceOperator', parseInt(e.target.value) || 0)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
                 />
               </div>
               <div>
@@ -123,7 +106,7 @@ export default function SettingsPage() {
                   type="number"
                   value={settings.cadenceConsultant}
                   onChange={(e) => updateField('cadenceConsultant', parseInt(e.target.value) || 0)}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-900"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
                 />
               </div>
             </div>
@@ -135,7 +118,7 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-400 mb-2">
               These are configured in your <code className="bg-gray-100 px-1 rounded">.env.local</code> file (locally) or Vercel project settings (production).
             </p>
-            <div className="bg-gray-50 rounded p-3 text-xs font-mono text-gray-600 space-y-1">
+            <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-600 space-y-1">
               <p>NEXT_PUBLIC_SUPABASE_URL</p>
               <p>NEXT_PUBLIC_SUPABASE_ANON_KEY</p>
               <p>CLAUDE_API_KEY</p>
@@ -146,7 +129,7 @@ export default function SettingsPage() {
 
           <button
             onClick={handleSave}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded font-medium hover:bg-blue-700"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
           >
             {saved ? 'Saved!' : 'Save Settings'}
           </button>

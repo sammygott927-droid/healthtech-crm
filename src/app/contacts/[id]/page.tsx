@@ -126,20 +126,20 @@ export default function ContactDetailPage() {
   }
 
   if (loading || !contact) {
-    return <div className="min-h-screen bg-gray-50 p-8 text-center text-gray-400">Loading...</div>
+    return <div className="p-8 text-center text-gray-400">Loading...</div>
   }
 
   const followUp = getFollowUpLabel(contact.last_contact_date, contact.follow_up_cadence_days)
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-3xl">
+    <div className="p-8">
+      <div className="max-w-3xl">
         <Link href="/contacts" className="text-sm text-blue-600 hover:underline mb-4 inline-block">
           ← Back to Contacts
         </Link>
 
         {/* Header */}
-        <div className="bg-white rounded-lg shadow p-6 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
           <h1 className="text-2xl font-bold text-gray-900">{contact.name}</h1>
           <p className="text-gray-600 mt-1">
             {contact.role && <span>{contact.role}</span>}
@@ -178,7 +178,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Status, Next Step, Follow-up Cadence */}
-        <div className="bg-white rounded-lg shadow p-6 mb-4 space-y-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 space-y-4">
           {/* Status */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 w-28">Status:</span>
@@ -275,7 +275,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Tags */}
-        <div className="bg-white rounded-lg shadow p-6 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">Tags</h2>
           <div className="flex flex-wrap gap-2 mb-3">
             {contact.tags.length === 0 && <span className="text-sm text-gray-400">No tags yet</span>}
@@ -311,7 +311,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Notes */}
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-700">Notes</h2>
             <button

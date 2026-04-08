@@ -61,26 +61,20 @@ export default function ContactsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-6xl">
+    <div className="p-8">
+      <div className="max-w-6xl">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
           <div className="flex gap-3">
             <Link
-              href="/"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Command Center
-            </Link>
-            <Link
               href="/import"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
+              className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 text-sm transition-colors"
             >
               Import CSV
             </Link>
             <Link
               href="/contacts/new"
-              className="bg-blue-600 text-white px-4 py-2 rounded font-medium hover:bg-blue-700 text-sm"
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 text-sm transition-colors"
             >
               + Add Contact
             </Link>
@@ -88,7 +82,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-3 items-end">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
             <input
@@ -96,7 +90,7 @@ export default function ContactsPage() {
               placeholder="Search by name or company..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
             />
           </div>
           <div>
@@ -104,7 +98,7 @@ export default function ContactsPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-900"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900"
             >
               <option value="">All</option>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -115,7 +109,7 @@ export default function ContactsPage() {
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm text-gray-900"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900"
             >
               <option value="">All</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -128,13 +122,13 @@ export default function ContactsPage() {
               placeholder="e.g. home health"
               value={sectorFilter}
               onChange={(e) => setSectorFilter(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm w-40 text-gray-900 placeholder-gray-400"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-40 text-gray-900 placeholder-gray-400"
             />
           </div>
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -177,7 +171,7 @@ export default function ContactsPage() {
                 </tr>
               ) : (
                 contacts.map((c) => (
-                  <tr key={c.id} className="hover:bg-gray-50">
+                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
                       <Link href={`/contacts/${c.id}`} className="text-blue-600 hover:underline font-medium">
                         {c.name}
@@ -190,7 +184,6 @@ export default function ContactsPage() {
                         c.status === 'Active' ? 'bg-green-100 text-green-800' :
                         c.status === 'Warm' ? 'bg-yellow-100 text-yellow-800' :
                         c.status === 'Cold' ? 'bg-blue-100 text-blue-800' :
-                        c.status === 'Dormant' ? 'bg-gray-100 text-gray-600' :
                         'bg-gray-100 text-gray-600'
                       }`}>
                         {c.status || '—'}

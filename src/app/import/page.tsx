@@ -36,27 +36,15 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="mx-auto max-w-xl">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Import Contacts</h1>
-          <div className="flex gap-3">
-            <Link
-              href="/"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Command Center
-            </Link>
-            <Link
-              href="/contacts"
-              className="bg-gray-100 text-gray-700 px-4 py-2 rounded font-medium hover:bg-gray-200 text-sm"
-            >
-              Contacts
-            </Link>
-          </div>
-        </div>
+    <div className="p-8">
+      <div className="max-w-xl">
+        <Link href="/contacts" className="text-sm text-blue-600 hover:underline mb-4 inline-block">
+          ← Back to Contacts
+        </Link>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Import Contacts</h1>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <p className="text-sm text-gray-600 mb-4">
             Upload a CSV with columns: name, role, company, sector, referral_source, status, next_step, email, phone, last_contact_date, notes.
             Column order doesn&apos;t matter. Missing fields will be left blank.
@@ -68,20 +56,20 @@ export default function ImportPage() {
               type="file"
               accept=".csv"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
             />
           </label>
 
           <button
             onClick={handleUpload}
             disabled={!file || status === 'uploading'}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {status === 'uploading' ? 'Importing...' : 'Import Contacts'}
           </button>
 
           {status === 'done' && result && (
-            <div className="mt-4 p-4 bg-green-50 rounded text-sm">
+            <div className="mt-4 p-4 bg-green-50 rounded-lg text-sm">
               <p className="text-green-800 font-medium">
                 Successfully imported {result.imported} of {result.total} contacts.
               </p>
