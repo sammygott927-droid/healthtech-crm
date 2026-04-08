@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 function getAnthropic() {
   const key = process.env.CLAUDE_API_KEY
   if (!key) {
-    throw new Error('ANTHROPIC_API_KEY is not set in environment')
+    throw new Error('CLAUDE_API_KEY is not set in environment')
   }
   return new Anthropic({ apiKey: key })
 }
@@ -20,17 +20,19 @@ interface ContactWithTags {
   role: string | null
   company: string | null
   sector: string | null
+  status: string | null
   tags: { tag: string }[]
   notes: { summary: string; full_notes: string | null }[]
 }
 
-interface CandidateItem {
-  newsItem: NewsItem
-  contact: ContactWithTags
-  searchTerm: string
+interface CompanySlot {
+  company: string
+  contacts: ContactWithTags[]
+  articles: NewsItem[]
+  statusBoost: number // higher = better ranking
 }
 
-// GET handler for Vercel Cron (cron jobs send GET requests)
+// GET handler for Vercel Cron
 export async function GET(request: NextRequest) {
   return runDailyBrief(request)
 }
@@ -41,105 +43,165 @@ export async function POST(request: NextRequest) {
 
 async function runDailyBrief(request: NextRequest) {
   try {
-    // Step 1: Gather search targets
+    // Step 1: Gather contacts
     const { data: contacts } = await supabase
       .from('contacts')
-      .select('id, name, role, company, sector, last_contact_date, follow_up_cadence_days, tags(tag), notes(summary, full_notes)')
+      .select('id, name, role, company, sector, status, last_contact_date, follow_up_cadence_days, tags(tag), notes(summary, full_notes)')
       .neq('status', 'Dormant')
 
     if (!contacts || contacts.length === 0) {
       return NextResponse.json({ message: 'No contacts to search for', items: [] })
     }
 
-    // Collect unique search terms: companies + high-frequency tags
-    const searchTerms: Map<string, ContactWithTags[]> = new Map()
-
+    // Step 2: Build company → contacts map (deduplicate companies)
+    const companyMap = new Map<string, ContactWithTags[]>()
     for (const contact of contacts) {
-      if (contact.company) {
-        const key = contact.company.toLowerCase()
-        if (!searchTerms.has(key)) searchTerms.set(key, [])
-        searchTerms.get(key)!.push(contact as ContactWithTags)
-      }
+      if (!contact.company) continue
+      const key = contact.company.toLowerCase().trim()
+      if (!companyMap.has(key)) companyMap.set(key, [])
+      companyMap.get(key)!.push(contact as ContactWithTags)
+    }
+
+    // Also collect tag-based search terms mapped to contacts
+    const tagSearchTerms = new Map<string, ContactWithTags[]>()
+    for (const contact of contacts) {
       for (const t of (contact.tags || [])) {
         const key = t.tag.toLowerCase()
-        if (!searchTerms.has(key)) searchTerms.set(key, [])
-        searchTerms.get(key)!.push(contact as ContactWithTags)
+        if (!tagSearchTerms.has(key)) tagSearchTerms.set(key, [])
+        tagSearchTerms.get(key)!.push(contact as ContactWithTags)
       }
     }
 
-    // Step 2: Search for news (limit total queries to avoid rate limits)
-    const allTerms = Array.from(searchTerms.keys()).slice(0, 20)
-    const candidates: CandidateItem[] = []
+    // Step 3: Fetch news for companies first, then tags
+    const companySlots = new Map<string, CompanySlot>()
 
-    for (const term of allTerms) {
-      const newsItems = await fetchGoogleNews(term, 3)
-      const relatedContacts = searchTerms.get(term)!
+    // Search by company names (prioritized)
+    const companyNames = Array.from(companyMap.keys()).slice(0, 15)
+    for (const companyKey of companyNames) {
+      const newsItems = await fetchGoogleNews(companyKey, 5)
+      if (newsItems.length === 0) continue
 
-      for (const item of newsItems) {
-        candidates.push({
-          newsItem: item,
-          contact: relatedContacts[0],
-          searchTerm: term,
-        })
+      const companyContacts = companyMap.get(companyKey)!
+      const displayName = companyContacts[0].company || companyKey
+
+      // Status boost: Active=2, Warm=1, else 0
+      const bestStatus = companyContacts.reduce((best, c) => {
+        const score = c.status === 'Active' ? 2 : c.status === 'Warm' ? 1 : 0
+        return Math.max(best, score)
+      }, 0)
+
+      companySlots.set(companyKey, {
+        company: displayName,
+        contacts: companyContacts,
+        articles: newsItems,
+        statusBoost: bestStatus,
+      })
+    }
+
+    // Search by tags (fill remaining slots)
+    const tagTerms = Array.from(tagSearchTerms.keys()).slice(0, 10)
+    for (const tag of tagTerms) {
+      const newsItems = await fetchGoogleNews(tag, 3)
+      if (newsItems.length === 0) continue
+
+      const tagContacts = tagSearchTerms.get(tag)!
+      // Group these articles under the contact's company if possible
+      for (const contact of tagContacts) {
+        if (!contact.company) continue
+        const key = contact.company.toLowerCase().trim()
+        if (companySlots.has(key)) {
+          // Add articles to existing company slot (deduplicate by URL)
+          const slot = companySlots.get(key)!
+          const existingUrls = new Set(slot.articles.map(a => a.link))
+          for (const item of newsItems) {
+            if (!existingUrls.has(item.link)) {
+              slot.articles.push(item)
+              existingUrls.add(item.link)
+            }
+          }
+        } else {
+          const bestStatus = contact.status === 'Active' ? 2 : contact.status === 'Warm' ? 1 : 0
+          companySlots.set(key, {
+            company: contact.company,
+            contacts: [contact],
+            articles: newsItems,
+            statusBoost: bestStatus,
+          })
+        }
       }
     }
 
-    if (candidates.length === 0) {
+    if (companySlots.size === 0) {
       return NextResponse.json({ message: 'No news found', items: [] })
     }
 
-    // Step 3: Deduplicate against existing daily_briefs by source URL
+    // Step 4: Deduplicate against existing daily_briefs
     const { data: existing } = await supabase
       .from('daily_briefs')
-      .select('source_url, headline')
+      .select('company')
 
-    const existingUrls = new Set(existing?.map((e) => e.source_url) || [])
-    const existingHeadlines = new Set(existing?.map((e) => e.headline?.toLowerCase()) || [])
+    const existingCompanies = new Set(
+      existing?.map((e) => e.company?.toLowerCase().trim()) || []
+    )
 
-    const newCandidates = candidates.filter((c) => {
-      if (existingUrls.has(c.newsItem.link)) return false
-      if (existingHeadlines.has(c.newsItem.title.toLowerCase())) return false
-      return true
-    })
+    // Filter out companies we've already briefed today
+    const today = new Date()
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString()
+    const { data: todayBriefs } = await supabase
+      .from('daily_briefs')
+      .select('company')
+      .gte('created_at', startOfDay)
 
-    // Also deduplicate within this batch by URL
-    const seenUrls = new Set<string>()
-    const uniqueCandidates = newCandidates.filter((c) => {
-      if (seenUrls.has(c.newsItem.link)) return false
-      seenUrls.add(c.newsItem.link)
-      return true
-    })
+    const todayCompanies = new Set(
+      todayBriefs?.map((e) => e.company?.toLowerCase().trim()) || []
+    )
 
-    // Limit to top 10 candidates for AI analysis
-    const toAnalyze = uniqueCandidates.slice(0, 10)
+    // Step 5: Filter to eligible companies, take wider pool for AI scoring
+    const eligibleSlots = Array.from(companySlots.values())
+      .filter(slot => !todayCompanies.has(slot.company.toLowerCase().trim()))
+      .slice(0, 12) // Analyze up to 12, then pick best 5 by AI relevance
 
-    // Step 4: AI analysis for each candidate
-    const results = []
+    if (eligibleSlots.length === 0) {
+      return NextResponse.json({ message: 'No new companies to brief', items: [] })
+    }
 
-    for (const candidate of toAnalyze) {
-      const analysis = await analyzeNewsItem(candidate)
+    // Step 6: AI analysis per company — analyze all eligible, then rank by relevance
+    const allAnalyzed = []
+    for (const slot of eligibleSlots) {
+      const analysis = await analyzeCompanySlot(slot)
       if (analysis) {
-        results.push(analysis)
+        allAnalyzed.push(analysis)
       }
     }
 
-    // Step 5: Rank by relevance and store
-    const ranked = results.sort((a, b) => {
-      const order = { High: 0, Medium: 1, Low: 2 }
-      const aOrder = order[a.relevance as keyof typeof order] ?? 2
-      const bOrder = order[b.relevance as keyof typeof order] ?? 2
-      if (aOrder !== bOrder) return aOrder - bOrder
-      return new Date(b.pub_date).getTime() - new Date(a.pub_date).getTime()
-    })
+    // Step 7: Rank by AI-determined relevance + status boost
+    // Relevance score: High=3, Medium=2, Low=1
+    // Status boost: Active=2, Warm=1, else 0
+    // Final score = relevance * 3 + status boost (relevance dominates)
+    const results = allAnalyzed
+      .sort((a, b) => {
+        const relScore = { High: 3, Medium: 2, Low: 1 }
+        const scoreA = (relScore[a.relevance as keyof typeof relScore] ?? 1) * 3 + a.statusBoost
+        const scoreB = (relScore[b.relevance as keyof typeof relScore] ?? 1) * 3 + b.statusBoost
+        return scoreB - scoreA
+      })
+      .slice(0, 5)
 
-    // Store all in database
-    const toInsert = ranked.map((r) => ({
+    // Step 7: Store in daily_briefs (one row per company)
+    const toInsert = results.map((r) => ({
       company: r.company,
-      headline: r.headline,
-      source_url: r.source_url,
-      ai_summary: r.ai_summary,
+      headline: r.contact_name, // Store contact name in headline field
+      source_url: null,
+      ai_summary: JSON.stringify({
+        articles: r.articles,
+        synthesis: r.synthesis,
+        contact_name: r.contact_name,
+      }),
       relevance: r.relevance,
-      draft_email: r.draft_email,
+      draft_email: JSON.stringify({
+        modular: r.modular_emails,
+        combined: r.combined_email,
+      }),
       contact_id: r.contact_id,
       status: 'New',
     }))
@@ -148,8 +210,7 @@ async function runDailyBrief(request: NextRequest) {
       await supabase.from('daily_briefs').insert(toInsert)
     }
 
-    // Send email digest
-    const today = new Date()
+    // Step 8: Calculate follow-ups and send email
     const allContacts = contacts || []
     const upcomingFollowUps = []
     const overdueFollowUps = []
@@ -169,21 +230,23 @@ async function runDailyBrief(request: NextRequest) {
     }
 
     const appUrl = new URL('/', request.url).toString()
-    const top5 = ranked.slice(0, 5).map((r) => ({
+
+    const digestItems = results.map((r) => ({
       company: r.company,
-      headline: r.headline,
-      ai_summary: r.ai_summary,
+      contact_name: r.contact_name,
+      articles: r.articles,
+      synthesis: r.synthesis,
       relevance: r.relevance,
-      draft_email: r.draft_email,
-      source_url: r.source_url,
+      modular_emails: r.modular_emails,
+      combined_email: r.combined_email,
     }))
 
-    const emailResult = await sendDailyDigest(top5, upcomingFollowUps, overdueFollowUps, appUrl)
+    const emailResult = await sendDailyDigest(digestItems, upcomingFollowUps, overdueFollowUps, appUrl)
 
     return NextResponse.json({
       success: true,
-      items: ranked.length,
-      results: ranked,
+      companies: results.length,
+      results,
       email: emailResult,
     })
   } catch (err) {
@@ -195,78 +258,68 @@ async function runDailyBrief(request: NextRequest) {
   }
 }
 
-async function analyzeNewsItem(candidate: CandidateItem) {
-  const { newsItem, contact } = candidate
+async function analyzeCompanySlot(slot: CompanySlot) {
+  const primaryContact = slot.contacts[0]
+  const contactNames = [...new Set(slot.contacts.map(c => c.name))].join(', ')
 
-  // Get recent notes for context
-  const recentNotes = (contact.notes || [])
-    .slice(0, 3)
-    .map((n) => n.summary)
+  // Get recent notes from all contacts at this company
+  const allNotes = slot.contacts
+    .flatMap(c => (c.notes || []).slice(0, 2))
+    .map(n => n.summary)
+    .slice(0, 4)
     .join('; ')
 
-  const roleGuidance = contact.role === 'Investor'
-    ? `For this Investor contact, prioritize:
-1. New companies raising funding that map to their portfolio thesis
-2. Portfolio company news (funding, exits, M&A)
-3. Regulatory changes affecting their investment areas
-4. LP/fundraising market trends
-5. New entrants or competitive dynamics in their sectors`
-    : `For this Operator/Consultant contact, prioritize:
-1. Regulatory or policy changes affecting their business
-2. Competitor launches or funding in their space
-3. Funding activity in their sector
-4. Relevant clinical evidence or research
-5. General industry trends`
+  const articlesList = slot.articles.slice(0, 5).map((a, i) =>
+    `Article ${i + 1}:\n  Headline: ${a.title}\n  Source: ${a.source}\n  Date: ${a.pubDate}`
+  ).join('\n\n')
 
-  const notesContext = recentNotes
-    ? `\nRecent conversation notes: ${recentNotes}`
+  const notesContext = allNotes
+    ? `\nRecent conversation notes: ${allNotes}`
     : ''
 
-  const emailGuidance = recentNotes
+  const emailGuidance = allNotes
     ? 'Reference our past conversation naturally ("Since we last spoke about..." or "This reminded me of our conversation about...")'
     : 'Keep it warm but general ("I\'ve been following [company] and thought you\'d find this interesting...")'
 
-  const prompt = `You are a healthcare networking CRM assistant helping me maintain relationships with my professional network.
+  const prompt = `You are a healthcare networking CRM assistant. Analyze these news articles about ${slot.company} for relevance to my contact(s).
 
-Analyze this news item for relevance to my contact:
+ARTICLES ABOUT ${slot.company.toUpperCase()}:
+${articlesList}
 
-NEWS:
-- Headline: ${newsItem.title}
-- Source: ${newsItem.source}
-- Date: ${newsItem.pubDate}
+CONTACT(S):
+${slot.contacts.map(c => `- ${c.name} (${c.role || 'Unknown role'}, ${c.sector || 'Unknown sector'})`).join('\n')}
+Tags: ${[...new Set(slot.contacts.flatMap(c => c.tags?.map(t => t.tag) || []))].join(', ') || 'None'}${notesContext}
 
-CONTACT:
-- Name: ${contact.name}
-- Role: ${contact.role || 'Unknown'}
-- Company: ${contact.company || 'Unknown'}
-- Sector: ${contact.sector || 'Unknown'}
-- Tags: ${contact.tags?.map((t) => t.tag).join(', ') || 'None'}${notesContext}
+RELEVANCE SCORING — this is the most important field. Score based on how actionable and interesting the news is for a healthcare investor/operator networking context:
+- "High": News I could immediately use as a reason to reach out — funding rounds, acquisitions, executive moves, major partnerships, regulatory decisions that directly affect the contact's work. The kind of thing that makes someone say "I should email them about this today."
+- "Medium": Relevant industry trends, competitor activity, or sector developments worth knowing — good conversation fodder but not an urgent reason to reach out.
+- "Low": Tangentially related news, generic industry coverage, or press releases with little substance. Not worth a dedicated outreach.
 
-${roleGuidance}
+Quality matters more than quantity. One highly actionable article should score "High" even if it's the only article. Many generic articles should still score "Low."
 
 Generate the following as JSON:
 {
   "relevance": "High" or "Medium" or "Low",
-  "summary": "2-3 sentences on what happened and why it matters",
-  "draft_email": "A personalized outreach email"
+  "articles": [
+    {
+      "headline": "exact article headline",
+      "source_url_index": 0,
+      "summary": "1-2 sentence summary of what happened and why it matters"
+    }
+  ],
+  "synthesis": "One paragraph synthesizing all the articles together — what's the bigger picture for this company?",
+  "modular_emails": [
+    "One standalone substance line per article that could be used in an email (e.g., 'I saw that [company] just [news]. [Brief analytical take].')"
+  ],
+  "combined_email": "A complete personalized email weaving all the articles together. ${emailGuidance}. Add value with analytical takes. Make a soft ask (coffee, call, or just catching up). Tone: professional but personal, warm, not salesy. Sign off as Sammy."
 }
-
-EMAIL STYLE GUIDE:
-- Lead with warmth and a specific callback to our last conversation if notes exist
-- ${emailGuidance}
-- Add value — include a brief analytical take or opinion on why this matters
-- Make a soft ask — suggest coffee, a quick call, or just "would love to hear how things are going"
-- Tone: professional but personal, warm, not salesy or templated
-- Length: 3-5 sentences max for the news part (not counting greeting or sign-off)
-- Sign off as: "Sammy"
-- Include honest caveats or nuanced opinions when relevant
 
 Return ONLY valid JSON, no other text.`
 
   try {
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
+      max_tokens: 1000,
       messages: [{ role: 'user', content: prompt }],
     })
 
@@ -276,18 +329,26 @@ Return ONLY valid JSON, no other text.`
 
     const parsed = JSON.parse(match[0])
 
+    // Map article source URLs back
+    const articlesWithUrls = (parsed.articles || []).map((a: { headline: string; source_url_index: number; summary: string }, i: number) => ({
+      headline: a.headline,
+      url: slot.articles[a.source_url_index ?? i]?.link || slot.articles[0]?.link || '',
+      summary: a.summary,
+    }))
+
     return {
-      company: contact.company || candidate.searchTerm,
-      headline: newsItem.title,
-      source_url: newsItem.link,
-      ai_summary: parsed.summary,
-      relevance: parsed.relevance,
-      draft_email: parsed.draft_email,
-      contact_id: contact.id,
-      pub_date: newsItem.pubDate,
+      company: slot.company,
+      contact_name: contactNames,
+      contact_id: primaryContact.id,
+      relevance: parsed.relevance || 'Medium',
+      statusBoost: slot.statusBoost,
+      articles: articlesWithUrls,
+      synthesis: parsed.synthesis || '',
+      modular_emails: parsed.modular_emails || [],
+      combined_email: parsed.combined_email || '',
     }
   } catch (err) {
-    console.error(`AI analysis failed for "${newsItem.title}":`, err)
+    console.error(`AI analysis failed for "${slot.company}":`, err)
     return null
   }
 }

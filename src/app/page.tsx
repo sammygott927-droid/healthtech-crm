@@ -3,15 +3,22 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
-interface BriefItem {
+interface ArticleItem {
+  headline: string
+  url: string
+  summary: string
+}
+
+interface CompanyBrief {
   id: string
   company: string | null
-  headline: string | null
-  ai_summary: string | null
-  relevance: string | null
-  draft_email: string | null
-  source_url: string | null
+  contact_name: string | null
   contact_id: string | null
+  relevance: string | null
+  articles: ArticleItem[]
+  synthesis: string | null
+  modular_emails: string[]
+  combined_email: string | null
   created_at: string
 }
 
@@ -25,12 +32,13 @@ interface FollowUpContact {
 }
 
 export default function HomePage() {
-  const [briefs, setBriefs] = useState<BriefItem[]>([])
+  const [briefs, setBriefs] = useState<CompanyBrief[]>([])
   const [upcoming, setUpcoming] = useState<FollowUpContact[]>([])
   const [overdue, setOverdue] = useState<FollowUpContact[]>([])
   const [loading, setLoading] = useState(true)
   const [runningBrief, setRunningBrief] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -58,10 +66,19 @@ export default function HomePage() {
     setRunningBrief(false)
   }
 
-  function copyEmail(id: string, email: string) {
-    navigator.clipboard.writeText(email)
+  function copyText(id: string, text: string) {
+    navigator.clipboard.writeText(text)
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  function toggleEmail(id: string) {
+    setExpandedEmails(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const relevanceColor = (r: string | null) => {
@@ -107,7 +124,7 @@ export default function HomePage() {
           <p className="text-center text-gray-400 py-12">Loading...</p>
         ) : (
           <>
-            {/* Section 1: Today's Brief */}
+            {/* Section 1: Today's Brief — Company Cards */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">Today&apos;s Brief</h2>
@@ -125,41 +142,102 @@ export default function HomePage() {
                   No brief items yet today. Click &quot;Run Brief Now&quot; to generate.
                 </p>
               ) : (
-                <div className="space-y-4">
-                  {briefs.slice(0, 5).map((item) => (
-                    <div key={item.id} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-start justify-between gap-3 mb-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-medium text-gray-500">{item.company}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${relevanceColor(item.relevance)}`}>
-                              {item.relevance}
-                            </span>
-                          </div>
-                          <a
-                            href={item.source_url || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-medium text-blue-600 hover:underline"
-                          >
-                            {item.headline}
-                          </a>
-                        </div>
+                <div className="space-y-5">
+                  {briefs.map((item) => (
+                    <div key={item.id} className="border border-gray-200 rounded-lg p-5">
+                      {/* Company header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <h3 className="text-base font-semibold text-gray-900">{item.company}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${relevanceColor(item.relevance)}`}>
+                          {item.relevance}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-600 mb-3">{item.ai_summary}</p>
 
-                      {item.draft_email && (
-                        <div className="bg-gray-50 rounded p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-medium text-gray-500">Draft Email</span>
-                            <button
-                              onClick={() => copyEmail(item.id, item.draft_email!)}
-                              className="text-xs bg-white border border-gray-300 px-3 py-1 rounded hover:bg-gray-50 text-gray-700"
-                            >
-                              {copiedId === item.id ? 'Copied!' : 'Copy'}
-                            </button>
-                          </div>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{item.draft_email}</p>
+                      {/* Contact name */}
+                      {item.contact_name && (
+                        <p className="text-xs text-gray-500 mb-3">
+                          Contact{item.contact_name.includes(',') ? 's' : ''}: {item.contact_id ? (
+                            <Link href={`/contacts/${item.contact_id}`} className="text-blue-600 hover:underline">
+                              {item.contact_name}
+                            </Link>
+                          ) : item.contact_name}
+                        </p>
+                      )}
+
+                      {/* Articles list */}
+                      {item.articles.length > 0 && (
+                        <div className="space-y-2 mb-3">
+                          {item.articles.map((article, i) => (
+                            <div key={i} className="bg-gray-50 rounded p-3">
+                              <a
+                                href={article.url || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline"
+                              >
+                                {article.headline}
+                              </a>
+                              <p className="text-xs text-gray-600 mt-1">{article.summary}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Synthesis paragraph */}
+                      {item.synthesis && (
+                        <div className="border-t border-gray-100 pt-3 mb-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Synthesis</p>
+                          <p className="text-sm text-gray-700">{item.synthesis}</p>
+                        </div>
+                      )}
+
+                      {/* Draft Email section (collapsible) */}
+                      {(item.combined_email || item.modular_emails.length > 0) && (
+                        <div className="border-t border-gray-100 pt-3">
+                          <button
+                            onClick={() => toggleEmail(item.id)}
+                            className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2 flex items-center gap-1"
+                          >
+                            {expandedEmails.has(item.id) ? '▼' : '▶'} Draft Email
+                          </button>
+
+                          {expandedEmails.has(item.id) && (
+                            <div className="space-y-3">
+                              {/* Modular lines */}
+                              {item.modular_emails.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-medium text-gray-400 mb-1">Pick individual lines:</p>
+                                  {item.modular_emails.map((line, i) => (
+                                    <div key={i} className="flex items-start gap-2 mb-2">
+                                      <p className="text-sm text-gray-700 flex-1 bg-blue-50 rounded px-3 py-2">{line}</p>
+                                      <button
+                                        onClick={() => copyText(`${item.id}-mod-${i}`, line)}
+                                        className="text-xs bg-white border border-gray-300 px-2 py-1 rounded hover:bg-gray-50 text-gray-600 whitespace-nowrap mt-1"
+                                      >
+                                        {copiedId === `${item.id}-mod-${i}` ? 'Copied!' : 'Copy'}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Combined email */}
+                              {item.combined_email && (
+                                <div className="bg-gray-50 rounded p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-medium text-gray-500">Combined Version</span>
+                                    <button
+                                      onClick={() => copyText(`${item.id}-combined`, item.combined_email!)}
+                                      className="text-xs bg-white border border-gray-300 px-3 py-1 rounded hover:bg-gray-50 text-gray-700"
+                                    >
+                                      {copiedId === `${item.id}-combined` ? 'Copied!' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{item.combined_email}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

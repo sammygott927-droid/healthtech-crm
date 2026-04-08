@@ -1,12 +1,19 @@
 import { Resend } from 'resend'
 
-interface BriefItem {
-  company: string
+interface ArticleItem {
   headline: string
-  ai_summary: string
+  url: string
+  summary: string
+}
+
+interface CompanyDigestItem {
+  company: string
+  contact_name: string
+  articles: ArticleItem[]
+  synthesis: string
   relevance: string
-  draft_email: string
-  source_url: string
+  modular_emails: string[]
+  combined_email: string
 }
 
 interface FollowUpContact {
@@ -22,7 +29,7 @@ function getResend() {
 }
 
 export async function sendDailyDigest(
-  items: BriefItem[],
+  items: CompanyDigestItem[],
   upcoming: FollowUpContact[],
   overdue: FollowUpContact[],
   appUrl: string
@@ -40,7 +47,7 @@ export async function sendDailyDigest(
     day: 'numeric',
   })
 
-  const subject = `Your Daily Brief — ${today} — ${items.length} items`
+  const subject = `Your Daily Brief — ${today} — ${items.length} companies`
 
   const html = buildEmailHtml(items, upcoming, overdue, today, appUrl)
 
@@ -61,7 +68,7 @@ export async function sendDailyDigest(
 }
 
 function buildEmailHtml(
-  items: BriefItem[],
+  items: CompanyDigestItem[],
   upcoming: FollowUpContact[],
   overdue: FollowUpContact[],
   dateStr: string,
@@ -73,22 +80,35 @@ function buildEmailHtml(
     return '#6b7280'
   }
 
-  const newsItemsHtml = items.length === 0
+  const companyCardsHtml = items.length === 0
     ? '<p style="color: #9ca3af; font-size: 14px;">No news items today.</p>'
-    : items.map((item) => `
-      <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
-        <div style="margin-bottom: 8px;">
-          <span style="font-size: 12px; color: #6b7280;">${escapeHtml(item.company)}</span>
-          <span style="font-size: 11px; background: ${relevanceColor(item.relevance)}15; color: ${relevanceColor(item.relevance)}; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">${item.relevance}</span>
+    : items.map((item) => {
+      const articlesHtml = item.articles.map((a) => `
+        <div style="background: #f9fafb; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
+          <a href="${escapeHtml(a.url)}" style="font-size: 13px; font-weight: 600; color: #2563eb; text-decoration: none;">${escapeHtml(a.headline)}</a>
+          <p style="font-size: 12px; color: #4b5563; margin: 4px 0 0 0;">${escapeHtml(a.summary)}</p>
         </div>
-        <a href="${escapeHtml(item.source_url)}" style="font-size: 14px; font-weight: 600; color: #2563eb; text-decoration: none;">${escapeHtml(item.headline)}</a>
-        <p style="font-size: 13px; color: #4b5563; margin: 8px 0;">${escapeHtml(item.ai_summary)}</p>
-        <div style="background: #f9fafb; border-radius: 6px; padding: 12px; margin-top: 8px;">
-          <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 6px 0;">DRAFT EMAIL</p>
-          <p style="font-size: 13px; color: #374151; margin: 0; white-space: pre-wrap;">${escapeHtml(item.draft_email)}</p>
+      `).join('')
+
+      return `
+        <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="margin-bottom: 8px;">
+            <span style="font-size: 15px; font-weight: 700; color: #111827;">${escapeHtml(item.company)}</span>
+            <span style="font-size: 11px; background: ${relevanceColor(item.relevance)}15; color: ${relevanceColor(item.relevance)}; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">${item.relevance}</span>
+          </div>
+          <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px 0;">Contact: ${escapeHtml(item.contact_name)}</p>
+          ${articlesHtml}
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 10px;">
+            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 4px 0;">SYNTHESIS</p>
+            <p style="font-size: 13px; color: #374151; margin: 0;">${escapeHtml(item.synthesis)}</p>
+          </div>
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 10px;">
+            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 6px 0;">DRAFT EMAIL</p>
+            <p style="font-size: 13px; color: #374151; margin: 0; white-space: pre-wrap;">${escapeHtml(item.combined_email)}</p>
+          </div>
         </div>
-      </div>
-    `).join('')
+      `
+    }).join('')
 
   const upcomingHtml = upcoming.length === 0
     ? '<p style="color: #9ca3af; font-size: 14px;">No follow-ups due in the next 7 days.</p>'
@@ -123,8 +143,8 @@ function buildEmailHtml(
     <h1 style="font-size: 20px; color: #111827; margin: 0 0 4px 0;">Your Daily Brief</h1>
     <p style="font-size: 13px; color: #9ca3af; margin: 0 0 24px 0;">${dateStr}</p>
 
-    <h2 style="font-size: 16px; color: #111827; margin: 0 0 12px 0;">Top News</h2>
-    ${newsItemsHtml}
+    <h2 style="font-size: 16px; color: #111827; margin: 0 0 12px 0;">Top Companies</h2>
+    ${companyCardsHtml}
 
     <h2 style="font-size: 16px; color: #111827; margin: 24px 0 12px 0;">Follow-Up Reminders</h2>
     ${upcomingHtml}
