@@ -35,17 +35,29 @@ export default function SettingsPage() {
     }
   }, [])
 
+  // Safely parse a response — if the server returned a non-JSON error (e.g. a
+  // Vercel function timeout page, which is plain text "An error occurred..."),
+  // surface it without crashing on res.json().
+  async function safeParse(res: Response): Promise<{ ok: boolean; data: Record<string, unknown>; rawText?: string }> {
+    const text = await res.text()
+    try {
+      return { ok: res.ok, data: JSON.parse(text) as Record<string, unknown> }
+    } catch {
+      return { ok: res.ok, data: {}, rawText: text }
+    }
+  }
+
   async function handleRetagAll() {
     if (!confirm('Re-generate AI tags for all contacts that have notes? This will replace existing auto-generated tags (manual tags are preserved). May take a few minutes.')) return
     setRetagging(true)
     setRetagResult('')
     try {
       const res = await fetch('/api/retag-all', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        setRetagResult(`Re-tagged ${data.processed} of ${data.contacts_with_notes} contacts with notes.${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      const { ok, data, rawText } = await safeParse(res)
+      if (ok) {
+        setRetagResult(`Re-tagged ${data.processed} of ${data.contacts_with_notes} contacts with notes.${Number(data.errors) > 0 ? ` ${data.errors} errors.` : ''}`)
       } else {
-        setRetagResult(`Error: ${data.error || 'Unknown error'}`)
+        setRetagResult(`Error: ${(data.error as string) || rawText?.slice(0, 200) || 'Unknown error'}`)
       }
     } catch (err) {
       setRetagResult(`Error: ${String(err)}`)
@@ -60,11 +72,11 @@ export default function SettingsPage() {
     setRestructureResult('')
     try {
       const res = await fetch('/api/restructure-notes-all', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        setRestructureResult(`Restructured ${data.processed} of ${data.contacts_with_notes} contacts with notes.${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      const { ok, data, rawText } = await safeParse(res)
+      if (ok) {
+        setRestructureResult(`Restructured ${data.processed} of ${data.contacts_with_notes} contacts with notes.${Number(data.errors) > 0 ? ` ${data.errors} errors.` : ''}`)
       } else {
-        setRestructureResult(`Error: ${data.error || 'Unknown error'}`)
+        setRestructureResult(`Error: ${(data.error as string) || rawText?.slice(0, 200) || 'Unknown error'}`)
       }
     } catch (err) {
       setRestructureResult(`Error: ${String(err)}`)
@@ -79,11 +91,17 @@ export default function SettingsPage() {
     setReinferResult('')
     try {
       const res = await fetch('/api/reinfer-sectors-all', { method: 'POST' })
-      const data = await res.json()
-      if (res.ok) {
-        setReinferResult(`Updated ${data.updated} of ${data.total_contacts} contacts.${data.skipped > 0 ? ` ${data.skipped} skipped (UNKNOWN).` : ''}${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      const { ok, data, rawText } = await safeParse(res)
+      if (ok) {
+        setReinferResult(`Updated ${data.updated} of ${data.total_contacts} contacts.${Number(data.skipped) > 0 ? ` ${data.skipped} skipped (UNKNOWN).` : ''}${Number(data.errors) > 0 ? ` ${data.errors} errors.` : ''}`)
       } else {
-        setReinferResult(`Error: ${data.error || 'Unknown error'}`)
+        // rawText surfaces Vercel's plain-text timeout page ("An error occurred...")
+        // when the function exceeds maxDuration before returning JSON.
+        const errMsg = (data.error as string) || rawText?.slice(0, 200) || 'Unknown error'
+        const hint = rawText?.toLowerCase().includes('timed out') || rawText?.toLowerCase().includes('an error occurred')
+          ? ' (Function likely timed out — try running on a smaller set of contacts.)'
+          : ''
+        setReinferResult(`Error: ${errMsg}${hint}`)
       }
     } catch (err) {
       setReinferResult(`Error: ${String(err)}`)
