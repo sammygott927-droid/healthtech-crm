@@ -164,12 +164,46 @@ After any web search, your FINAL message must be ONLY the sector string on a sin
 // ---------- Core ----------
 
 async function inferSector(contact) {
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1500,
-    messages: [{ role: 'user', content: buildPrompt(contact) }],
-    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
-  })
+  let response
+  try {
+    response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: buildPrompt(contact) }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+    })
+  } catch (err) {
+    // Anthropic SDK errors carry: status, message, error (body), headers, request_id.
+    // Dump everything we can see so the root cause is visible — credit balance,
+    // model gating, web-search permission, rate limits, etc.
+    console.error('')
+    console.error('─── Anthropic API error ───')
+    console.error('  name:       ', err?.name)
+    console.error('  status:     ', err?.status)
+    console.error('  request_id: ', err?.request_id || err?.headers?.['request-id'])
+    console.error('  message:    ', err?.message)
+    if (err?.error !== undefined) {
+      console.error('  error body: ', JSON.stringify(err.error, null, 2))
+    }
+    if (err?.headers) {
+      // Only print the headers that matter for diagnosis
+      const h = err.headers
+      const keys = [
+        'anthropic-organization-id',
+        'anthropic-ratelimit-requests-remaining',
+        'anthropic-ratelimit-tokens-remaining',
+        'retry-after',
+      ]
+      const filtered = {}
+      for (const k of keys) if (h[k] !== undefined) filtered[k] = h[k]
+      if (Object.keys(filtered).length > 0) {
+        console.error('  headers:    ', JSON.stringify(filtered, null, 2))
+      }
+    }
+    console.error('───────────────────────────')
+    console.error('')
+    throw err
+  }
 
   // The final answer is in the LAST text block (web search returns
   // server_tool_use + web_search_tool_result blocks interleaved).
@@ -193,7 +227,49 @@ async function inferSector(contact) {
   return cleaned
 }
 
+// Preflight: a tiny API call with no tools, then a tiny one WITH web search.
+// Lets us distinguish "key/account broken" from "web search not enabled on this tier".
+async function preflight() {
+  console.log('Preflight: testing Anthropic API (no tools)...')
+  try {
+    const r = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Reply with just: ok' }],
+    })
+    const orgId = r?._request_id ? '' : ''
+    console.log(`  ✓ Basic call works. Model: ${r.model}. Usage: ${r.usage?.input_tokens}in/${r.usage?.output_tokens}out${orgId}`)
+  } catch (err) {
+    console.error('  ✗ Basic call FAILED — key/account issue, not web search:')
+    console.error('    status:', err?.status, '  message:', err?.message)
+    if (err?.error) console.error('    body:', JSON.stringify(err.error))
+    process.exit(1)
+  }
+
+  console.log('Preflight: testing web_search tool...')
+  try {
+    const r = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      messages: [{ role: 'user', content: 'Use web_search to find what year it currently is, then reply with just the year number.' }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+    })
+    console.log(`  ✓ Web search works. Usage: ${r.usage?.input_tokens}in/${r.usage?.output_tokens}out + ${r.usage?.server_tool_use?.web_search_requests || 0} search(es)`)
+  } catch (err) {
+    console.error('  ✗ Web search call FAILED (basic call worked — the issue is specifically web_search):')
+    console.error('    status:', err?.status, '  message:', err?.message)
+    if (err?.error) console.error('    body:', JSON.stringify(err.error, null, 2))
+    console.error('')
+    console.error('  Web search may require: organization enabling it in Console → Settings → Privacy & Security,')
+    console.error('  or a paid tier with web-search entitlement. Check console.anthropic.com.')
+    process.exit(1)
+  }
+  console.log('')
+}
+
 async function main() {
+  await preflight()
+
   console.log('Fetching contacts from Supabase...')
   const { data: contacts, error } = await supabase
     .from('contacts')
