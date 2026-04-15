@@ -86,25 +86,66 @@ export default function SettingsPage() {
   }
 
   async function handleReinferSectors() {
-    if (!confirm('Re-infer a specific niche healthcare sector for every contact using their profile + notes? This will OVERWRITE the current sector field (e.g. "Healthcare" → "value-based care / Medicare Advantage"). May take a few minutes.')) return
+    if (!confirm('Re-infer a specific niche healthcare sector for every contact using their profile + notes? This will OVERWRITE the current sector field (e.g. "Healthcare" → "value-based care / Medicare Advantage"). Contacts are processed in batches of 20 — this may take a few minutes.')) return
+
     setReinferring(true)
-    setReinferResult('')
+    setReinferResult('Starting...')
+
+    const BATCH_SIZE = 20
+    let offset = 0
+    let total = 0
+    let totalUpdated = 0
+    let totalSkipped = 0
+    let totalErrors = 0
+    let batchNum = 0
+
     try {
-      const res = await fetch('/api/reinfer-sectors-all', { method: 'POST' })
-      const { ok, data, rawText } = await safeParse(res)
-      if (ok) {
-        setReinferResult(`Updated ${data.updated} of ${data.total_contacts} contacts.${Number(data.skipped) > 0 ? ` ${data.skipped} skipped (UNKNOWN).` : ''}${Number(data.errors) > 0 ? ` ${data.errors} errors.` : ''}`)
-      } else {
-        // rawText surfaces Vercel's plain-text timeout page ("An error occurred...")
-        // when the function exceeds maxDuration before returning JSON.
-        const errMsg = (data.error as string) || rawText?.slice(0, 200) || 'Unknown error'
-        const hint = rawText?.toLowerCase().includes('timed out') || rawText?.toLowerCase().includes('an error occurred')
-          ? ' (Function likely timed out — try running on a smaller set of contacts.)'
-          : ''
-        setReinferResult(`Error: ${errMsg}${hint}`)
+      // Loop until the server says done
+      // Safety cap to avoid a runaway loop if the server misbehaves
+      for (let i = 0; i < 100; i++) {
+        batchNum++
+        const res = await fetch(`/api/reinfer-sectors-all?offset=${offset}&limit=${BATCH_SIZE}`, {
+          method: 'POST',
+        })
+        const { ok, data, rawText } = await safeParse(res)
+
+        if (!ok) {
+          const errMsg = (data.error as string) || rawText?.slice(0, 200) || 'Unknown error'
+          const hint = rawText?.toLowerCase().includes('timed out') || rawText?.toLowerCase().includes('an error occurred')
+            ? ' (A batch timed out. Partial progress above was saved.)'
+            : ''
+          setReinferResult(`Error on batch ${batchNum}: ${errMsg}${hint}${totalUpdated > 0 ? ` — ${totalUpdated} contacts updated before this failure.` : ''}`)
+          return
+        }
+
+        total = Number(data.total) || total
+        totalUpdated += Number(data.updated) || 0
+        totalSkipped += Number(data.skipped) || 0
+        totalErrors += Number(data.errors) || 0
+
+        const totalBatches = Math.max(1, Math.ceil(total / BATCH_SIZE))
+        const rangeStart = offset + 1
+        const rangeEnd = offset + (Number(data.batch_size) || 0)
+
+        if (data.done) {
+          setReinferResult(
+            `Done. Updated ${totalUpdated} of ${total} contacts.` +
+              (totalSkipped > 0 ? ` ${totalSkipped} skipped (UNKNOWN).` : '') +
+              (totalErrors > 0 ? ` ${totalErrors} errors.` : '')
+          )
+          return
+        }
+
+        setReinferResult(
+          `Processing batch ${batchNum} of ${totalBatches}... (contacts ${rangeStart}-${rangeEnd} of ${total}) — ${totalUpdated} updated so far`
+        )
+
+        offset = Number(data.next_offset) || (offset + BATCH_SIZE)
       }
+
+      setReinferResult(`Stopped after 100 batches to avoid a runaway loop. ${totalUpdated} updated.`)
     } catch (err) {
-      setReinferResult(`Error: ${String(err)}`)
+      setReinferResult(`Error on batch ${batchNum}: ${String(err)}${totalUpdated > 0 ? ` — ${totalUpdated} contacts updated before this failure.` : ''}`)
     } finally {
       setReinferring(false)
     }

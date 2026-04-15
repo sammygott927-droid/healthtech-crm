@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { inferSectorForContact } from '@/lib/infer-sector'
 
@@ -24,21 +24,51 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   })
 }
 
-// Re-infer a specific niche sector for every contact, using notes as signal.
-// Each contact is wrapped in its own try/catch AND a hard timeout so one slow
-// or stuck contact can't stop the batch or exhaust the 300s function budget.
-export async function POST() {
+// Re-infer sectors for a slice of contacts. Accepts ?offset=N&limit=M query
+// params so the client can drive batched processing without hitting the
+// per-function 300s Vercel budget. Contacts are ordered by created_at ASC
+// so batches are stable across calls.
+export async function POST(request: NextRequest) {
   try {
+    const url = new URL(request.url)
+    const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10) || 0)
+    const rawLimit = parseInt(url.searchParams.get('limit') || '20', 10) || 20
+    const limit = Math.min(Math.max(rawLimit, 1), 50) // clamp 1..50
+
+    // Get total count first so the client can compute batch progress
+    const { count: totalCount, error: countErr } = await supabase
+      .from('contacts')
+      .select('id', { count: 'exact', head: true })
+
+    if (countErr) {
+      return NextResponse.json({ error: countErr.message }, { status: 500 })
+    }
+
+    // Fetch just this slice, ordered for stability
     const { data: contacts, error } = await supabase
       .from('contacts')
       .select('id, name, role, company, sector, notes(summary, full_notes)')
+      .order('created_at', { ascending: true })
+      .range(offset, offset + limit - 1)
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    const total = totalCount || 0
+
     if (!contacts || contacts.length === 0) {
-      return NextResponse.json({ message: 'No contacts found', processed: 0 })
+      return NextResponse.json({
+        success: true,
+        total,
+        offset,
+        limit,
+        batch_size: 0,
+        updated: 0,
+        skipped: 0,
+        errors: 0,
+        done: true,
+      })
     }
 
     let updated = 0
@@ -70,25 +100,29 @@ export async function POST() {
           console.log(`[reinfer-sectors] Updated ${contact.name}: ${contact.sector || '(none)'} → ${newSector}`)
         }
       } catch (err) {
-        // Truncate error message; one bad error can bloat the response
         const msg = String(err).slice(0, 300)
         errors.push({ id: contact.id, name: contact.name, error: msg })
         console.error(`[reinfer-sectors] Failed ${contact.name}:`, err)
-        // Continue to next contact — one failure never stops the batch
       }
     }
 
+    const nextOffset = offset + contacts.length
+    const done = nextOffset >= total
+
     return NextResponse.json({
       success: true,
-      total_contacts: contacts.length,
+      total,
+      offset,
+      limit,
+      batch_size: contacts.length,
+      next_offset: done ? null : nextOffset,
+      done,
       updated,
       skipped,
       errors: errors.length,
-      // Only return first 10 error details to keep payload small
       error_details: errors.slice(0, 10),
     })
   } catch (err) {
-    // Last-resort catch — always return JSON, never let Next/Vercel return an HTML/text error page
     console.error('[reinfer-sectors] Fatal:', err)
     return NextResponse.json(
       { error: 'Re-infer sectors failed', details: String(err).slice(0, 500) },
