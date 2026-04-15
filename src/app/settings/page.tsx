@@ -23,6 +23,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [retagging, setRetagging] = useState(false)
   const [retagResult, setRetagResult] = useState<string>('')
+  const [restructuring, setRestructuring] = useState(false)
+  const [restructureResult, setRestructureResult] = useState<string>('')
 
   useEffect(() => {
     const stored = localStorage.getItem('crm-settings')
@@ -47,6 +49,25 @@ export default function SettingsPage() {
       setRetagResult(`Error: ${String(err)}`)
     } finally {
       setRetagging(false)
+    }
+  }
+
+  async function handleRestructureAll() {
+    if (!confirm('Rebuild the structured notes view for all contacts that have notes? This reads each contact\'s notes and regenerates the 6-category view + 1-2 sentence summary. May take a few minutes.')) return
+    setRestructuring(true)
+    setRestructureResult('')
+    try {
+      const res = await fetch('/api/restructure-notes-all', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setRestructureResult(`Restructured ${data.processed} of ${data.contacts_with_notes} contacts with notes.${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      } else {
+        setRestructureResult(`Error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      setRestructureResult(`Error: ${String(err)}`)
+    } finally {
+      setRestructuring(false)
     }
   }
 
@@ -175,6 +196,23 @@ export default function SettingsPage() {
             </button>
             {retagResult && (
               <p className="text-xs text-gray-600 mt-3">{retagResult}</p>
+            )}
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-medium text-gray-700 mb-1">Restructure all notes</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Rebuilds the 6-category structured view (How we met, Areas of interest, Advice given, Key takeaways, Next steps, Miscellaneous) plus a 1-2 sentence summary for every contact with notes. Raw notes are untouched.
+            </p>
+            <button
+              onClick={handleRestructureAll}
+              disabled={restructuring}
+              className="bg-purple-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm transition-colors"
+            >
+              {restructuring ? 'Restructuring... (this may take a few minutes)' : 'Restructure All Notes'}
+            </button>
+            {restructureResult && (
+              <p className="text-xs text-gray-600 mt-3">{restructureResult}</p>
             )}
           </div>
         </div>

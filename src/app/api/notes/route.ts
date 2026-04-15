@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { generateTagsForNote } from '@/lib/generate-tags'
+import { structureNotesForContact } from '@/lib/structure-notes'
 
 export async function POST(request: NextRequest) {
   const { contact_id, summary, full_notes } = await request.json()
@@ -37,6 +38,16 @@ export async function POST(request: NextRequest) {
   if (contact) {
     generateTagsForNote(contact_id, contact, summary, full_notes || null)
       .catch((err) => console.error('Tag generation from note failed:', err))
+
+    // Fire-and-forget: restructure notes view across all notes for this contact
+    ;(async () => {
+      const { data: allNotes } = await supabase
+        .from('notes')
+        .select('summary, full_notes, created_at')
+        .eq('contact_id', contact_id)
+      if (!allNotes) return
+      await structureNotesForContact(contact_id, contact, allNotes)
+    })().catch((err) => console.error('Note structuring failed:', err))
   }
 
   return NextResponse.json(note)

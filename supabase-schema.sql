@@ -15,8 +15,14 @@ create table contacts (
   phone text,
   follow_up_cadence_days integer default 60,
   last_contact_date date,
+  notes_summary text,           -- 1-2 sentence AI summary across all notes
+  notes_structured jsonb,       -- Structured AI view: { "How we met": [...], "Areas of interest": [...], ... }
   created_at timestamptz default now()
 );
+
+-- If the contacts table already exists, run these migrations instead:
+--   alter table contacts add column if not exists notes_summary text;
+--   alter table contacts add column if not exists notes_structured jsonb;
 
 -- 2. Notes table
 create table notes (

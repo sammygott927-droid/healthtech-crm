@@ -30,9 +30,20 @@ interface Contact {
   phone: string | null
   follow_up_cadence_days: number
   last_contact_date: string | null
+  notes_summary: string | null
+  notes_structured: Record<string, string[]> | null
   tags: Tag[]
   notes: Note[]
 }
+
+const NOTE_CATEGORY_ORDER = [
+  'How we met',
+  'Areas of interest',
+  'Advice given',
+  'Key takeaways',
+  'Next steps',
+  'Miscellaneous',
+]
 
 const STATUSES = ['Active', 'Warm', 'Cold', 'Dormant']
 
@@ -64,6 +75,7 @@ export default function ContactDetailPage() {
   const [noteSummary, setNoteSummary] = useState('')
   const [noteFullText, setNoteFullText] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
+  const [showRawNotes, setShowRawNotes] = useState(false)
 
   const fetchContact = useCallback(async () => {
     const res = await fetch(`/api/contacts/${id}`)
@@ -322,6 +334,47 @@ export default function ContactDetailPage() {
             </button>
           </div>
 
+          {/* AI Summary */}
+          {contact.notes_summary && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4">
+              <p className="text-xs uppercase tracking-wide text-blue-700 font-semibold mb-1">Summary</p>
+              <p className="text-sm text-gray-900">{contact.notes_summary}</p>
+            </div>
+          )}
+
+          {/* Structured Categories */}
+          {contact.notes_structured && Object.keys(contact.notes_structured).length > 0 && (
+            <div className="space-y-4 mb-4">
+              {NOTE_CATEGORY_ORDER.map((cat) => {
+                const bullets = contact.notes_structured?.[cat]
+                if (!Array.isArray(bullets) || bullets.length === 0) return null
+                return (
+                  <div key={cat}>
+                    <h3 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1.5">{cat}</h3>
+                    <ul className="space-y-1">
+                      {bullets.map((b, i) => (
+                        <li key={i} className="text-sm text-gray-800 pl-4 relative">
+                          <span className="absolute left-0 text-gray-400">•</span>
+                          {b}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Toggle for raw notes */}
+          {contact.notes.length > 0 && (contact.notes_summary || contact.notes_structured) && (
+            <button
+              onClick={() => setShowRawNotes((v) => !v)}
+              className="text-xs text-blue-600 hover:underline mb-3"
+            >
+              {showRawNotes ? 'Hide raw notes' : `Show raw notes (${contact.notes.length})`}
+            </button>
+          )}
+
           {showNoteForm && (
             <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-gray-50">
               <input
@@ -361,16 +414,20 @@ export default function ContactDetailPage() {
             {contact.notes.length === 0 && (
               <p className="text-sm text-gray-400">No notes yet. Add one to start tracking interactions.</p>
             )}
-            {contact.notes.map((n) => (
-              <div key={n.id} className="border-l-2 border-gray-200 pl-4 py-1">
-                <p className="text-sm font-medium text-gray-900">{n.summary}</p>
-                {n.full_notes && <p className="text-sm text-gray-600 mt-1">{n.full_notes}</p>}
-                <p className="text-xs text-gray-400 mt-1">
-                  {new Date(n.created_at).toLocaleDateString()} at{' '}
-                  {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-            ))}
+            {contact.notes.length > 0 && !contact.notes_summary && !contact.notes_structured && (
+              <p className="text-xs text-gray-400 italic">Structured view generates in the background after a note is saved.</p>
+            )}
+            {(showRawNotes || (!contact.notes_summary && !contact.notes_structured)) &&
+              contact.notes.map((n) => (
+                <div key={n.id} className="border-l-2 border-gray-200 pl-4 py-1">
+                  <p className="text-sm font-medium text-gray-900">{n.summary}</p>
+                  {n.full_notes && <p className="text-sm text-gray-600 mt-1">{n.full_notes}</p>}
+                  <p className="text-xs text-gray-400 mt-1">
+                    {new Date(n.created_at).toLocaleDateString()} at{' '}
+                    {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              ))}
           </div>
         </div>
       </div>
