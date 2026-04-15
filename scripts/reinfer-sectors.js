@@ -23,6 +23,8 @@ const { createClient } = require('@supabase/supabase-js')
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// We intentionally use CLAUDE_API_KEY (NOT ANTHROPIC_API_KEY) because Claude Code
+// sets ANTHROPIC_API_KEY in the shell to a different account's key.
 const ANTHROPIC_KEY = process.env.CLAUDE_API_KEY
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -33,6 +35,26 @@ if (!ANTHROPIC_KEY) {
   console.error('Missing CLAUDE_API_KEY in .env.local')
   process.exit(1)
 }
+
+// Defense against Claude Code / shell env collision:
+// The Anthropic SDK falls back to process.env.ANTHROPIC_API_KEY when no key is
+// passed, and some code paths may honor it even if apiKey IS passed. If the
+// shell has a different ANTHROPIC_API_KEY set (e.g. from Claude Code, billed
+// to a different account), we'd silently hit that account and get a credit
+// balance error even though our actual key has credit. Wipe it so only the
+// explicit key below is used.
+if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== ANTHROPIC_KEY) {
+  console.log(
+    'Note: stripping ANTHROPIC_API_KEY from env (likely set by Claude Code) — using CLAUDE_API_KEY from .env.local instead.'
+  )
+  delete process.env.ANTHROPIC_API_KEY
+}
+
+// Sanity print: show which key prefix we're about to use, so a wrong account
+// is obvious before the first API call.
+const keyPrefix = ANTHROPIC_KEY.slice(0, 12)
+const keySuffix = ANTHROPIC_KEY.slice(-4)
+console.log(`Using Anthropic key: ${keyPrefix}...${keySuffix} (from CLAUDE_API_KEY)`)
 
 const args = process.argv.slice(2)
 const FORCE = args.includes('--force')
