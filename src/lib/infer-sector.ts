@@ -18,33 +18,46 @@ interface NoteContext {
 }
 
 const SECTOR_STYLE_GUIDANCE = `SECTOR STYLE — CRITICAL:
-Return ONE short, specific healthcare sector/niche — the kind of phrase an insider would use to describe where this person actually works or focuses. Think clinical domain + business model, not broad industry buckets.
+Return ONE short, specific healthcare sector/niche — the clinical domain or market segment this person actually works in. Think like a healthcare insider describing WHAT the company does for WHICH patients, not how it's built or sold.
 
-GOOD sectors (specific, insider):
-- "value-based care / Medicare Advantage"
+HOW TO REASON:
+1. Read the company name AND the notes together. The notes usually reveal what the company actually does. Don't guess from the name alone.
+   - Example: "Jukebox Health" sounds like music-tech. Notes say they deliver in-home care to aging adults → sector is "home health", NOT "digital health" or "SaaS".
+   - Example: "Maven Clinic" → notes mention women's health + fertility → "women's health / fertility", NOT "telehealth platform".
+2. Anchor on the CLINICAL DOMAIN (what condition/population) and/or MARKET SEGMENT (payer, care setting, business model in healthcare-native terms).
+3. AVOID software-category language. Do NOT use: "SaaS", "platform", "app", "marketplace", "software", "tech stack", "enablement platform". These describe how the product is packaged, not what the sector is.
+4. If the company is clearly a services/provider business (delivering care), name the care type directly: "home health", "primary care", "dialysis", "hospice", "behavioral health", "specialty pharmacy".
+5. For investors: encode stage + clinical thesis ("Series A women's health", "growth-stage value-based care"), not "healthtech VC".
+6. For consultants: encode practice area ("hospital M&A advisory", "payer strategy consulting").
+
+GOOD sectors (clinical/market niche language):
+- "home health"
+- "value-based primary care"
+- "Medicare Advantage"
+- "maternal health"
 - "pulmonary rehab"
-- "home health operations"
-- "early-stage healthtech investing"
-- "Series A digital health"
 - "pediatric behavioral health"
-- "specialty pharmacy / 340B"
-- "provider enablement SaaS"
-- "maternal health tech"
-- "clinical trials tech"
-- "oncology diagnostics"
-- "payer-provider analytics"
-- "PBM / pharmacy benefits"
-- "RPM / chronic care management"
-- "healthcare M&A advisory"
+- "specialty pharmacy"
+- "hospice and palliative care"
+- "women's health / fertility"
+- "oncology care delivery"
+- "dialysis / ESRD"
+- "chronic care management"
+- "musculoskeletal care"
+- "senior care / aging in place"
+- "autoimmune"
+- "clinical trials"
+- "Series A digital health investing"
+- "growth-stage value-based care investing"
 - "hospital operations consulting"
 
-BAD sectors (too generic — avoid):
-- "Healthcare", "Health Tech", "Digital Health", "Medical"
-- "Technology", "Software", "Business", "Consulting"
-- "Investor", "Operator" (role, not sector)
-- "Startup", "Enterprise"
+BAD sectors (software category, generic, or misleading):
+- "provider enablement SaaS", "care coordination platform", "digital health platform"
+- "Healthcare", "Health Tech", "Digital Health", "Medical", "Wellness"
+- "Technology", "Software", "Startup", "Enterprise"
+- "Investor", "Operator", "Consultant" (that's a role, not a sector)
 
-Prefer 2-5 words. If the person is an investor, encode their thesis (stage + domain). If an operator, encode their company's business model + clinical focus. If a consultant, encode their practice area.`
+Prefer 2-5 words. Name the clinical reality, not the tech wrapper.`
 
 /**
  * Infer a specific, niche healthcare sector for a single contact based on their
