@@ -10,6 +10,13 @@ interface Settings {
   cadenceConsultant: number
 }
 
+interface NewsSource {
+  id: string
+  name: string
+  url: string
+  created_at: string
+}
+
 const DEFAULT_SETTINGS: Settings = {
   email: '',
   briefTime: '7:00 AM ET',
@@ -28,12 +35,90 @@ export default function SettingsPage() {
   const [reinferring, setReinferring] = useState(false)
   const [reinferResult, setReinferResult] = useState<string>('')
 
+  // News sources state
+  const [sources, setSources] = useState<NewsSource[]>([])
+  const [sourcesLoading, setSourcesLoading] = useState(true)
+  const [sourcesError, setSourcesError] = useState('')
+  const [newSourceName, setNewSourceName] = useState('')
+  const [newSourceUrl, setNewSourceUrl] = useState('')
+  const [adding, setAdding] = useState(false)
+
   useEffect(() => {
     const stored = localStorage.getItem('crm-settings')
     if (stored) {
       setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) })
     }
   }, [])
+
+  // Load news sources on mount
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setSourcesLoading(true)
+      try {
+        const res = await fetch('/api/news-sources')
+        const data = await res.json()
+        if (cancelled) return
+        if (Array.isArray(data)) {
+          setSources(data)
+          setSourcesError('')
+        } else {
+          setSourcesError(data?.error || 'Failed to load sources')
+        }
+      } catch (err) {
+        if (!cancelled) setSourcesError(String(err))
+      } finally {
+        if (!cancelled) setSourcesLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleAddSource(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newSourceName.trim() || !newSourceUrl.trim() || adding) return
+    setAdding(true)
+    setSourcesError('')
+    try {
+      const res = await fetch('/api/news-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSourceName.trim(), url: newSourceUrl.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSourcesError(data?.error || `HTTP ${res.status}`)
+      } else {
+        setSources((prev) => [data, ...prev])
+        setNewSourceName('')
+        setNewSourceUrl('')
+      }
+    } catch (err) {
+      setSourcesError(String(err))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function handleDeleteSource(id: string, name: string) {
+    if (!confirm(`Delete source "${name}"? This removes it from the daily brief pipeline.`)) return
+    const prev = sources
+    // Optimistic remove
+    setSources((s) => s.filter((x) => x.id !== id))
+    try {
+      const res = await fetch(`/api/news-sources/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSources(prev) // rollback
+        setSourcesError(data?.error || 'Failed to delete')
+      }
+    } catch (err) {
+      setSources(prev)
+      setSourcesError(String(err))
+    }
+  }
 
   // Safely parse a response — if the server returned a non-JSON error (e.g. a
   // Vercel function timeout page, which is plain text "An error occurred..."),
@@ -166,6 +251,79 @@ export default function SettingsPage() {
     <div className="p-8">
       <div className="max-w-xl">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+
+        {/* News Sources — FIRST section (Task 2) */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-sm font-semibold text-gray-900 mb-1">News Sources</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            RSS/blog feeds pulled into your daily brief alongside Google News. Paste any RSS or blog URL — if a feed fails to load, delete it and try a different URL (e.g. <code className="bg-gray-100 px-1 rounded text-[11px]">/rss</code>, <code className="bg-gray-100 px-1 rounded text-[11px]">/feed</code>, <code className="bg-gray-100 px-1 rounded text-[11px]">/atom.xml</code>).
+          </p>
+
+          {/* List */}
+          <div className="space-y-2 mb-4">
+            {sourcesLoading ? (
+              <p className="text-xs text-gray-400">Loading sources...</p>
+            ) : sources.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">
+                No sources yet. Add one below, or run the migration in <code className="bg-gray-100 px-1 rounded">supabase-news-sources-migration.sql</code> to seed defaults.
+              </p>
+            ) : (
+              sources.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-gray-900 truncate">{s.name}</p>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline truncate block"
+                    >
+                      {s.url}
+                    </a>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteSource(s.id, s.name)}
+                    className="text-xs text-gray-400 hover:text-red-600 flex-shrink-0"
+                    title="Delete source"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Add form */}
+          <form onSubmit={handleAddSource} className="border-t border-gray-200 pt-4 space-y-2">
+            <div className="grid grid-cols-[1fr_2fr_auto] gap-2">
+              <input
+                type="text"
+                placeholder="Name (e.g. Out-of-Pocket)"
+                value={newSourceName}
+                onChange={(e) => setNewSourceName(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+              />
+              <input
+                type="url"
+                placeholder="https://example.com/feed"
+                value={newSourceUrl}
+                onChange={(e) => setNewSourceUrl(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+              />
+              <button
+                type="submit"
+                disabled={adding || !newSourceName.trim() || !newSourceUrl.trim()}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {adding ? 'Adding...' : 'Add Source'}
+              </button>
+            </div>
+            {sourcesError && <p className="text-xs text-red-600">{sourcesError}</p>}
+          </form>
+        </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
           {/* Email */}

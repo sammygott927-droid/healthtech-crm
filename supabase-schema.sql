@@ -56,13 +56,25 @@ create table daily_briefs (
   created_at timestamptz default now()
 );
 
--- 5. Enable Row Level Security (required by Supabase, but allow all for single-user app)
+-- 5. News sources table (Task 2) — RSS/blog feeds to pull from in daily brief
+create table news_sources (
+  id uuid default gen_random_uuid() primary key,
+  name text not null,
+  url text not null unique,
+  created_at timestamptz default now()
+);
+
+-- 6. Enable Row Level Security (required by Supabase, but allow all for single-user app)
 alter table contacts enable row level security;
 alter table notes enable row level security;
 alter table tags enable row level security;
 alter table daily_briefs enable row level security;
+alter table news_sources enable row level security;
 
 create policy "Allow all on contacts" on contacts for all using (true) with check (true);
 create policy "Allow all on notes" on notes for all using (true) with check (true);
 create policy "Allow all on tags" on tags for all using (true) with check (true);
 create policy "Allow all on daily_briefs" on daily_briefs for all using (true) with check (true);
+create policy "Allow all on news_sources" on news_sources for all using (true) with check (true);
+
+-- For an existing DB, run supabase-news-sources-migration.sql instead (idempotent).

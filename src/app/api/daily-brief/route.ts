@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { fetchGoogleNews, NewsItem } from '@/lib/news-fetcher'
+import { fetchGoogleNews, fetchFromCustomSources, NewsItem } from '@/lib/news-fetcher'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendDailyDigest } from '@/lib/send-digest'
 
@@ -190,6 +190,72 @@ async function runDailyBrief(request: NextRequest) {
             articles: deduped.slice(0, 3),
             statusBoost: bestStatus,
           })
+        }
+      }
+    }
+
+    // Step 3b: Pull articles from user-saved RSS sources and match against
+    // tracked companies / tags. One broken feed doesn't block the rest.
+    const { data: savedSources } = await supabase
+      .from('news_sources')
+      .select('name, url')
+
+    if (savedSources && savedSources.length > 0) {
+      const customItems = await fetchFromCustomSources(
+        savedSources.map((s) => ({ name: s.name as string, url: s.url as string })),
+        10
+      )
+
+      const mergeIntoSlot = (key: string, displayName: string, contactList: ContactWithTags[], item: NewsItem) => {
+        const existing = companySlots.get(key)
+        if (existing) {
+          const combined = [...existing.articles, item]
+          const seen = new Set<string>()
+          const unique = combined.filter((a) => {
+            if (seen.has(a.link)) return false
+            seen.add(a.link)
+            return true
+          })
+          existing.articles = deduplicateArticles(unique).slice(0, 3)
+        } else {
+          const bestStatus = contactList.reduce((best, c) => {
+            const score = c.status === 'Active' ? 2 : c.status === 'Warm' ? 1 : 0
+            return Math.max(best, score)
+          }, 0)
+          companySlots.set(key, {
+            company: displayName,
+            contacts: contactList,
+            articles: [item],
+            statusBoost: bestStatus,
+          })
+        }
+      }
+
+      for (const item of customItems) {
+        const haystack = item.title.toLowerCase()
+        if (!haystack) continue
+
+        // Company name match
+        let matched = false
+        for (const [companyKey, companyContacts] of companyMap.entries()) {
+          if (companyKey.length >= 3 && haystack.includes(companyKey)) {
+            const displayName = companyContacts[0].company || companyKey
+            mergeIntoSlot(companyKey, displayName, companyContacts, item)
+            matched = true
+            break
+          }
+        }
+        if (matched) continue
+
+        // Tag match — attribute article to each matched contact's company
+        for (const [tagKey, tagContacts] of tagSearchTerms.entries()) {
+          if (tagKey.length < 3 || !haystack.includes(tagKey)) continue
+          for (const contact of tagContacts) {
+            if (!contact.company) continue
+            const key = contact.company.toLowerCase().trim()
+            mergeIntoSlot(key, contact.company, [contact], item)
+          }
+          break
         }
       }
     }
