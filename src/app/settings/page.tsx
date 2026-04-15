@@ -25,6 +25,8 @@ export default function SettingsPage() {
   const [retagResult, setRetagResult] = useState<string>('')
   const [restructuring, setRestructuring] = useState(false)
   const [restructureResult, setRestructureResult] = useState<string>('')
+  const [reinferring, setReinferring] = useState(false)
+  const [reinferResult, setReinferResult] = useState<string>('')
 
   useEffect(() => {
     const stored = localStorage.getItem('crm-settings')
@@ -68,6 +70,25 @@ export default function SettingsPage() {
       setRestructureResult(`Error: ${String(err)}`)
     } finally {
       setRestructuring(false)
+    }
+  }
+
+  async function handleReinferSectors() {
+    if (!confirm('Re-infer a specific niche healthcare sector for every contact using their profile + notes? This will OVERWRITE the current sector field (e.g. "Healthcare" → "value-based care / Medicare Advantage"). May take a few minutes.')) return
+    setReinferring(true)
+    setReinferResult('')
+    try {
+      const res = await fetch('/api/reinfer-sectors-all', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setReinferResult(`Updated ${data.updated} of ${data.total_contacts} contacts.${data.skipped > 0 ? ` ${data.skipped} skipped (UNKNOWN).` : ''}${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      } else {
+        setReinferResult(`Error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      setReinferResult(`Error: ${String(err)}`)
+    } finally {
+      setReinferring(false)
     }
   }
 
@@ -213,6 +234,23 @@ export default function SettingsPage() {
             </button>
             {restructureResult && (
               <p className="text-xs text-gray-600 mt-3">{restructureResult}</p>
+            )}
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-medium text-gray-700 mb-1">Re-infer all sectors</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Uses AI to replace generic sectors (e.g. &quot;Healthcare&quot;, &quot;Digital Health&quot;) with specific niches mined from notes (e.g. &quot;value-based care / Medicare Advantage&quot;, &quot;pulmonary rehab&quot;, &quot;Series A healthtech&quot;). Overwrites the sector field.
+            </p>
+            <button
+              onClick={handleReinferSectors}
+              disabled={reinferring}
+              className="bg-purple-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm transition-colors"
+            >
+              {reinferring ? 'Re-inferring... (this may take a few minutes)' : 'Re-infer All Sectors'}
+            </button>
+            {reinferResult && (
+              <p className="text-xs text-gray-600 mt-3">{reinferResult}</p>
             )}
           </div>
         </div>
