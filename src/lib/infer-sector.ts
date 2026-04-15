@@ -18,22 +18,61 @@ interface NoteContext {
 }
 
 const SECTOR_STYLE_GUIDANCE = `SECTOR STYLE — CRITICAL:
-Return ONE short, specific healthcare sector/niche — the clinical domain or market segment this person actually works in. Think like a healthcare insider describing WHAT the company does for WHICH patients, not how it's built or sold.
+Return ONE short sector/niche. The shape of the answer depends on whether this person works at an INVESTOR firm or an OPERATOR/STARTUP. Get this distinction right — it's the most common mistake.
 
-HOW TO REASON:
-1. Read the company name AND the notes together. The notes usually reveal what the company actually does. Don't guess from the name alone.
-   - Example: "Jukebox Health" sounds like music-tech. Notes say they deliver in-home care to aging adults → sector is "home health", NOT "digital health" or "SaaS".
-   - Example: "Maven Clinic" → notes mention women's health + fertility → "women's health / fertility", NOT "telehealth platform".
-2. Anchor on the CLINICAL DOMAIN (what condition/population) and/or MARKET SEGMENT (payer, care setting, business model in healthcare-native terms).
-3. AVOID software-category language. Do NOT use: "SaaS", "platform", "app", "marketplace", "software", "tech stack", "enablement platform". These describe how the product is packaged, not what the sector is.
-4. If the company is clearly a services/provider business (delivering care), name the care type directly: "home health", "primary care", "dialysis", "hospice", "behavioral health", "specialty pharmacy".
-5. For investors: encode stage + clinical thesis ("Series A women's health", "growth-stage value-based care"), not "healthtech VC".
-6. For consultants: encode practice area ("hospital M&A advisory", "payer strategy consulting").
+═══════════════════════════════════════════════════
+RULE 1 — INVESTORS (VC firms, growth equity, PE, LPs, angel investors)
+═══════════════════════════════════════════════════
+Reflect the FIRM'S BROAD INVESTMENT MANDATE — the full set of areas they invest across. Do NOT narrow to a single portfolio company or one recent deal.
 
-GOOD sectors (clinical/market niche language):
+- ❌ WRONG: F-Prime → "pediatrics" (that's one portfolio bet, not the mandate)
+- ✅ RIGHT: F-Prime → "healthcare services, digital health, and life sciences investing"
+
+- ❌ WRONG: General Catalyst → "primary care" (just one investment)
+- ✅ RIGHT: General Catalyst → "healthcare services and digital health investing"
+
+- ❌ WRONG: a16z Bio + Health → "oncology"
+- ✅ RIGHT: a16z Bio + Health → "bio, digital health, and healthcare services investing"
+
+- ❌ WRONG: Oak HC/FT → "Medicare Advantage"
+- ✅ RIGHT: Oak HC/FT → "healthcare services and fintech investing"
+
+HOW TO REASON FOR INVESTORS:
+1. Search the firm's stated investment thesis, mandate, and portfolio categories. Look at their website's "what we invest in" or "focus areas" pages.
+2. Summarize the FULL mandate, not one slice. Use 2-4 broad domains joined by "and" — e.g. "healthcare services and digital health investing", "biotech and life sciences investing", "healthcare services, digital health, and life sciences investing".
+3. Include stage if clearly specialized ("Series A digital health and biotech investing"; "growth-stage healthcare services investing"). Omit stage for multi-stage generalist firms.
+4. Always end with the word "investing" (or "investor" if notes indicate the person is an LP / solo capital allocator, not at a firm).
+5. If the notes specifically narrow this contact's personal focus within the firm (e.g. "she only covers oncology at F-Prime"), THEN you can narrow — but you need explicit evidence from the notes, not inference.
+
+GOOD investor sectors:
+- "healthcare services and digital health investing"
+- "healthcare services, digital health, and life sciences investing"
+- "biotech and life sciences investing"
+- "Series A digital health investing"
+- "growth-stage value-based care investing"
+- "healthcare services and fintech investing"
+
+BAD investor sectors (too narrow / conflates one deal with the mandate):
+- "pediatrics", "oncology", "Medicare Advantage" (unless it's a single-thesis fund)
+- "healthtech VC", "digital health" (too generic)
+- "Investor" (that's a role)
+
+═══════════════════════════════════════════════════
+RULE 2 — OPERATORS / STARTUPS / PROVIDERS
+═══════════════════════════════════════════════════
+Be SPECIFIC. Name the clinical domain, patient population, or care setting the company actually serves. Think like a healthcare insider describing WHAT the company does for WHICH patients, not how it's built or sold.
+
+1. Read the company name AND the notes together. Notes usually reveal what the company actually does — don't guess from the name.
+   - "Jukebox Health" sounds like music-tech. Notes say in-home care for aging adults → "home health".
+   - "Maven Clinic" → notes mention women's health + fertility → "women's health / fertility".
+2. Anchor on the CLINICAL DOMAIN (condition / population) or MARKET SEGMENT (payer, care setting).
+3. AVOID software-category language. Do NOT use: "SaaS", "platform", "app", "marketplace", "software", "enablement platform". Those describe packaging, not sector.
+4. For services/provider businesses, name the care type directly: "home health", "primary care", "dialysis", "hospice", "behavioral health", "specialty pharmacy".
+
+GOOD operator sectors (2-5 words, clinical reality):
 - "home health"
 - "value-based primary care"
-- "Medicare Advantage"
+- "Medicare Advantage plan"
 - "maternal health"
 - "pulmonary rehab"
 - "pediatric behavioral health"
@@ -45,19 +84,16 @@ GOOD sectors (clinical/market niche language):
 - "chronic care management"
 - "musculoskeletal care"
 - "senior care / aging in place"
-- "autoimmune"
-- "clinical trials"
-- "Series A digital health investing"
-- "growth-stage value-based care investing"
-- "hospital operations consulting"
 
-BAD sectors (software category, generic, or misleading):
+BAD operator sectors:
 - "provider enablement SaaS", "care coordination platform", "digital health platform"
 - "Healthcare", "Health Tech", "Digital Health", "Medical", "Wellness"
-- "Technology", "Software", "Startup", "Enterprise"
-- "Investor", "Operator", "Consultant" (that's a role, not a sector)
+- "Operator" (that's a role)
 
-Prefer 2-5 words. Name the clinical reality, not the tech wrapper.`
+═══════════════════════════════════════════════════
+RULE 3 — CONSULTANTS
+═══════════════════════════════════════════════════
+Encode practice area: "hospital M&A advisory", "payer strategy consulting", "health system operations consulting". Not "Consultant" (role) or "Healthcare" (too broad).`
 
 /**
  * Infer a specific, niche healthcare sector for a single contact based on their
@@ -87,10 +123,13 @@ Notes:
 ${notesBlock}
 
 PROCESS:
-1. FIRST, use the web_search tool to look up what the company actually does. Search queries like "${context.company || context.name} healthcare" or "${context.company || context.name} company what does it do". For investors/funds, search the firm name + "portfolio" or "healthcare investments" to see their thesis.
-2. Ground your answer in what search reveals about the company's actual business — clinical domain, patient population, care setting, or investment thesis. Do NOT guess from the company name alone.
-3. If the notes contradict or refine what search shows, trust the notes — they came from a real conversation.
-4. Then produce the sector per the style guidance below.
+1. FIRST, determine whether this is an INVESTOR or an OPERATOR. Role field says "${context.role || 'Unknown'}". If Investor, you must reflect the firm's FULL mandate — not a single portfolio company.
+2. Use the web_search tool to find ground truth:
+   - For INVESTORS: search "${context.company || context.name} investment thesis" AND "${context.company || context.name} focus areas" AND "${context.company || context.name} portfolio categories". Read their website's "what we invest in" page. List the FULL set of sectors they invest across (e.g. "healthcare services, digital health, life sciences") — not just one deal.
+   - For OPERATORS: search "${context.company || context.name} healthcare" or "${context.company || context.name} what does it do". Identify the clinical domain / patient population.
+3. Ground your answer in what search reveals. Do NOT guess from the company name alone.
+4. If the notes contradict or refine what search shows, trust the notes. For investors, notes only override the broad mandate if they explicitly say this contact personally covers a narrower slice.
+5. Then produce the sector per the style guidance below — broad mandate for investors, specific focus for operators.
 
 ${SECTOR_STYLE_GUIDANCE}
 
