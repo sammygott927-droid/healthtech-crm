@@ -200,63 +200,98 @@ async function runDailyBrief(request: NextRequest) {
       .from('news_sources')
       .select('name, url')
 
+    let customItems: NewsItem[] = []
     if (savedSources && savedSources.length > 0) {
-      const customItems = await fetchFromCustomSources(
+      customItems = await fetchFromCustomSources(
         savedSources.map((s) => ({ name: s.name as string, url: s.url as string })),
         10
       )
+    }
 
-      const mergeIntoSlot = (key: string, displayName: string, contactList: ContactWithTags[], item: NewsItem) => {
-        const existing = companySlots.get(key)
-        if (existing) {
-          const combined = [...existing.articles, item]
-          const seen = new Set<string>()
-          const unique = combined.filter((a) => {
-            if (seen.has(a.link)) return false
-            seen.add(a.link)
-            return true
-          })
-          existing.articles = deduplicateArticles(unique).slice(0, 3)
-        } else {
-          const bestStatus = contactList.reduce((best, c) => {
-            const score = c.status === 'Active' ? 2 : c.status === 'Warm' ? 1 : 0
-            return Math.max(best, score)
-          }, 0)
-          companySlots.set(key, {
-            company: displayName,
-            contacts: contactList,
-            articles: [item],
-            statusBoost: bestStatus,
-          })
-        }
+    const mergeIntoSlot = (key: string, displayName: string, contactList: ContactWithTags[], item: NewsItem) => {
+      const existing = companySlots.get(key)
+      if (existing) {
+        const combined = [...existing.articles, item]
+        const seen = new Set<string>()
+        const unique = combined.filter((a) => {
+          if (seen.has(a.link)) return false
+          seen.add(a.link)
+          return true
+        })
+        existing.articles = deduplicateArticles(unique).slice(0, 3)
+      } else {
+        const bestStatus = contactList.reduce((best, c) => {
+          const score = c.status === 'Active' ? 2 : c.status === 'Warm' ? 1 : 0
+          return Math.max(best, score)
+        }, 0)
+        companySlots.set(key, {
+          company: displayName,
+          contacts: contactList,
+          articles: [item],
+          statusBoost: bestStatus,
+        })
       }
+    }
 
-      for (const item of customItems) {
-        const haystack = item.title.toLowerCase()
-        if (!haystack) continue
+    for (const item of customItems) {
+      const haystack = item.title.toLowerCase()
+      if (!haystack) continue
 
-        // Company name match
-        let matched = false
-        for (const [companyKey, companyContacts] of companyMap.entries()) {
-          if (companyKey.length >= 3 && haystack.includes(companyKey)) {
-            const displayName = companyContacts[0].company || companyKey
-            mergeIntoSlot(companyKey, displayName, companyContacts, item)
-            matched = true
-            break
-          }
-        }
-        if (matched) continue
-
-        // Tag match — attribute article to each matched contact's company
-        for (const [tagKey, tagContacts] of tagSearchTerms.entries()) {
-          if (tagKey.length < 3 || !haystack.includes(tagKey)) continue
-          for (const contact of tagContacts) {
-            if (!contact.company) continue
-            const key = contact.company.toLowerCase().trim()
-            mergeIntoSlot(key, contact.company, [contact], item)
-          }
+      // Company name match
+      let matched = false
+      for (const [companyKey, companyContacts] of companyMap.entries()) {
+        if (companyKey.length >= 3 && haystack.includes(companyKey)) {
+          const displayName = companyContacts[0].company || companyKey
+          mergeIntoSlot(companyKey, displayName, companyContacts, item)
+          matched = true
           break
         }
+      }
+      if (matched) continue
+
+      // Tag match — attribute article to each matched contact's company
+      for (const [tagKey, tagContacts] of tagSearchTerms.entries()) {
+        if (tagKey.length < 3 || !haystack.includes(tagKey)) continue
+        for (const contact of tagContacts) {
+          if (!contact.company) continue
+          const key = contact.company.toLowerCase().trim()
+          mergeIntoSlot(key, contact.company, [contact], item)
+        }
+        break
+      }
+    }
+
+    // Step 3c: Include watchlist companies — track news for them even when
+    // no contact is associated. These become "virtual" slots with no contacts.
+    const { data: watchlistRows } = await supabase
+      .from('watchlist')
+      .select('company, sector, reason')
+
+    if (watchlistRows && watchlistRows.length > 0) {
+      for (const row of watchlistRows) {
+        const company = (row.company as string | null)?.trim()
+        if (!company) continue
+        const key = company.toLowerCase()
+        if (companySlots.has(key)) continue // already covered via contacts
+
+        // 1. Scan already-fetched RSS items for this company name
+        const rssMatches: NewsItem[] = []
+        for (const item of customItems) {
+          if (item.title.toLowerCase().includes(key)) rssMatches.push(item)
+        }
+
+        // 2. Fetch Google News to supplement (cap aggregate fetches via 15-company limit elsewhere)
+        const googleItems = await fetchGoogleNews(key, 6)
+
+        const combined = deduplicateArticles([...rssMatches, ...googleItems])
+        if (combined.length === 0) continue
+
+        companySlots.set(key, {
+          company,
+          contacts: [], // virtual — no contact attribution
+          articles: combined.slice(0, 3),
+          statusBoost: 0,
+        })
       }
     }
 
@@ -374,8 +409,11 @@ async function runDailyBrief(request: NextRequest) {
 }
 
 async function analyzeCompanySlot(slot: CompanySlot) {
-  const primaryContact = slot.contacts[0]
-  const contactNames = [...new Set(slot.contacts.map(c => c.name))].join(', ')
+  const primaryContact = slot.contacts[0] // may be undefined for watchlist-only slots
+  const isWatchlistOnly = slot.contacts.length === 0
+  const contactNames = isWatchlistOnly
+    ? '(watchlist)'
+    : [...new Set(slot.contacts.map(c => c.name))].join(', ')
 
   const allNotes = slot.contacts
     .flatMap(c => (c.notes || []).slice(0, 2))
@@ -402,14 +440,18 @@ async function analyzeCompanySlot(slot: CompanySlot) {
     ? 'Generate 2 options (Option A and Option B), one per article.'
     : 'Generate 3 options (Option A, Option B, and Option C), one per article.'
 
+  const contactBlock = isWatchlistOnly
+    ? `CONTEXT: This is a WATCHLIST company — no contact is associated with it. I want to track newsworthy events and stay informed. Skip email drafting (return an empty email_options array).`
+    : `CONTACT(S):
+${slot.contacts.map(c => `- ${c.name} (${c.role || 'Unknown role'}, ${c.sector || 'Unknown sector'})`).join('\n')}
+Tags: ${[...new Set(slot.contacts.flatMap(c => c.tags?.map(t => t.tag) || []))].join(', ') || 'None'}${notesContext}`
+
   const prompt = `You are a healthcare networking CRM assistant. Analyze these news articles about ${slot.company} for relevance to my contact(s).
 
 ARTICLES ABOUT ${slot.company.toUpperCase()}:
 ${articlesList}
 
-CONTACT(S):
-${slot.contacts.map(c => `- ${c.name} (${c.role || 'Unknown role'}, ${c.sector || 'Unknown sector'})`).join('\n')}
-Tags: ${[...new Set(slot.contacts.flatMap(c => c.tags?.map(t => t.tag) || []))].join(', ') || 'None'}${notesContext}
+${contactBlock}
 
 RELEVANCE SCORING — this is the most important field. Score based on how actionable and interesting the news is for a healthcare investor/operator networking context:
 - "High": News I could immediately use as a reason to reach out — funding rounds, acquisitions, executive moves, major partnerships, regulatory decisions that directly affect the contact's work.
@@ -467,7 +509,7 @@ Return ONLY valid JSON, no other text.`
     return {
       company: slot.company,
       contact_name: contactNames,
-      contact_id: primaryContact.id,
+      contact_id: primaryContact?.id ?? null,
       relevance: parsed.relevance || 'Medium',
       statusBoost: slot.statusBoost,
       articles: articlesWithUrls,
