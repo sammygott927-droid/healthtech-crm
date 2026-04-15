@@ -122,29 +122,47 @@ Mine the notes carefully. If a note mentions "pulmonary rehab" — tag it. If it
 
 Return ONLY a JSON array of tag strings.`
 
+  // Call AI FIRST. If we get nothing back, abort before deleting — don't wipe
+  // tags just because Claude hiccuped.
   const tags = await callClaudeForTags(prompt)
 
+  if (tags.length === 0) {
+    throw new Error('AI returned no tags; existing tags preserved')
+  }
+
   // Preserve manual tags, replace auto-generated ones
-  const { data: manualTags } = await supabase
+  const { data: manualTags, error: selectErr } = await supabase
     .from('tags')
     .select('id, tag')
     .eq('contact_id', contactId)
     .eq('source', 'manual')
 
+  if (selectErr) throw new Error(`Failed to read manual tags: ${selectErr.message}`)
+
   const manualTagSet = new Set((manualTags || []).map(t => t.tag.toLowerCase()))
 
-  // Delete all auto-generated tags for this contact
-  await supabase
+  // Filter AI output against manual tags BEFORE touching the DB
+  const newTags = tags.filter(t => !manualTagSet.has(t.toLowerCase()))
+
+  if (newTags.length === 0) {
+    // Nothing to insert — leave existing tags alone
+    return tags
+  }
+
+  // Delete only auto-generated tags (explicit IN list handles NULL sources safely)
+  const { error: deleteErr } = await supabase
     .from('tags')
     .delete()
     .eq('contact_id', contactId)
-    .neq('source', 'manual')
+    .in('source', ['auto-import', 'auto-note'])
 
-  // Insert new auto-generated tags, skipping any that duplicate manual tags
-  const newTags = tags.filter(t => !manualTagSet.has(t.toLowerCase()))
-  if (newTags.length > 0) {
-    await saveTags(contactId, newTags, 'auto-regen')
-  }
+  if (deleteErr) throw new Error(`Failed to delete old tags: ${deleteErr.message}`)
+
+  // Insert new tags with 'auto-import' source (allowed by check constraint)
+  const rows = newTags.map(tag => ({ contact_id: contactId, tag, source: 'auto-import' }))
+  const { error: insertErr } = await supabase.from('tags').insert(rows)
+
+  if (insertErr) throw new Error(`Failed to insert new tags: ${insertErr.message}`)
 
   return tags
 }
@@ -179,11 +197,21 @@ async function callClaudeForTags(prompt: string): Promise<string[]> {
     })
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    const match = text.match(/\[[\s\S]*?\]/)
-    if (!match) return []
 
-    const parsed = JSON.parse(match[0])
-    if (!Array.isArray(parsed)) return []
+    // Find the outermost JSON array. Scan for the last `]` to match a greedy array.
+    const firstBracket = text.indexOf('[')
+    const lastBracket = text.lastIndexOf(']')
+    if (firstBracket === -1 || lastBracket === -1 || lastBracket <= firstBracket) {
+      console.error('Tag generation: no JSON array found in response:', text.slice(0, 200))
+      return []
+    }
+
+    const jsonStr = text.slice(firstBracket, lastBracket + 1)
+    const parsed = JSON.parse(jsonStr)
+    if (!Array.isArray(parsed)) {
+      console.error('Tag generation: parsed result is not an array')
+      return []
+    }
 
     return parsed
       .filter((t: unknown) => typeof t === 'string' && t.trim())
