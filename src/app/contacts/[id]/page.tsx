@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import MaskedField from '@/components/MaskedField'
 
 interface Tag {
   id: string
@@ -166,13 +167,11 @@ export default function ContactDetailPage() {
             </div>
             <div>
               <span className="text-gray-500">Email:</span>{' '}
-              {contact.email ? (
-                <a href={`mailto:${contact.email}`} className="text-blue-600 hover:underline">{contact.email}</a>
-              ) : '—'}
+              <MaskedField value={contact.email} as="mailto" />
             </div>
             <div>
               <span className="text-gray-500">Phone:</span>{' '}
-              <span className="text-gray-900">{contact.phone || '—'}</span>
+              <MaskedField value={contact.phone} as="tel" className="text-gray-900" />
             </div>
             <div>
               <span className="text-gray-500">Referral:</span>{' '}

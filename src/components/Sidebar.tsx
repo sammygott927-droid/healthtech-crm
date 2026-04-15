@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useReveal } from './RevealProvider'
 
 const NAV_ITEMS = [
   { href: '/', label: 'Command Center', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4' },
@@ -11,11 +12,22 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const { unlocked, lock } = useReveal()
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/'
     return pathname.startsWith(href)
   }
+
+  async function handleLogout() {
+    await fetch('/api/logout', { method: 'POST' })
+    lock()
+    window.location.href = '/login'
+  }
+
+  // Hide sidebar entirely on the login route (which covers it via z-50 anyway,
+  // but this avoids any flash of Sidebar markup behind the modal).
+  if (pathname === '/login') return null
 
   return (
     <aside className="fixed inset-y-0 left-0 w-56 bg-gray-900 flex flex-col z-30">
@@ -48,9 +60,29 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-5 py-4 border-t border-gray-800">
-        <p className="text-xs text-gray-600">DSAIL Final Project</p>
+      {/* Footer: reveal state + logout */}
+      <div className="px-3 py-4 border-t border-gray-800 space-y-2">
+        {unlocked && (
+          <button
+            onClick={lock}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-yellow-400 hover:bg-gray-800 transition-colors"
+            title="Re-mask emails and phones"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 00-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            Lock contact info
+          </button>
+        )}
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+          </svg>
+          Log out
+        </button>
       </div>
     </aside>
   )
