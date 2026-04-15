@@ -73,5 +73,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // If the form submitted suggested/manual tags, persist them now.
+  // Tags are marked 'auto-import' (AI-suggested) — user already curated them on the form.
+  if (Array.isArray(body.tags) && body.tags.length > 0) {
+    const tagRows = body.tags
+      .map((t: unknown) => (typeof t === 'string' ? t.trim() : ''))
+      .filter((t: string) => t.length > 0)
+      .map((tag: string) => ({
+        contact_id: data.id,
+        tag,
+        source: 'auto-import',
+      }))
+
+    if (tagRows.length > 0) {
+      await supabase.from('tags').insert(tagRows)
+    }
+  }
+
   return NextResponse.json(data, { status: 201 })
 }

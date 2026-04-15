@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS: Settings = {
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [saved, setSaved] = useState(false)
+  const [retagging, setRetagging] = useState(false)
+  const [retagResult, setRetagResult] = useState<string>('')
 
   useEffect(() => {
     const stored = localStorage.getItem('crm-settings')
@@ -28,6 +30,25 @@ export default function SettingsPage() {
       setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(stored) })
     }
   }, [])
+
+  async function handleRetagAll() {
+    if (!confirm('Re-generate AI tags for all contacts that have notes? This will replace existing auto-generated tags (manual tags are preserved). May take a few minutes.')) return
+    setRetagging(true)
+    setRetagResult('')
+    try {
+      const res = await fetch('/api/retag-all', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setRetagResult(`Re-tagged ${data.processed} of ${data.contacts_with_notes} contacts with notes.${data.errors > 0 ? ` ${data.errors} errors.` : ''}`)
+      } else {
+        setRetagResult(`Error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      setRetagResult(`Error: ${String(err)}`)
+    } finally {
+      setRetagging(false)
+    }
+  }
 
   function updateField(field: keyof Settings, value: string | number) {
     setSettings((prev) => ({ ...prev, [field]: value }))
@@ -133,6 +154,29 @@ export default function SettingsPage() {
           >
             {saved ? 'Saved!' : 'Save Settings'}
           </button>
+        </div>
+
+        {/* Maintenance */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
+          <h2 className="text-sm font-semibold text-gray-900 mb-1">Maintenance</h2>
+          <p className="text-xs text-gray-400 mb-4">One-time operations for bulk data management.</p>
+
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-1">Re-tag all contacts with notes</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Uses AI to read each contact&apos;s notes and regenerate specific thesis/interest tags (e.g. value-based care, pulmonary rehab, Series A healthtech). Manual tags are preserved. Contacts with no notes are left alone.
+            </p>
+            <button
+              onClick={handleRetagAll}
+              disabled={retagging}
+              className="bg-purple-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm transition-colors"
+            >
+              {retagging ? 'Re-tagging... (this may take a few minutes)' : 'Re-tag All Contacts'}
+            </button>
+            {retagResult && (
+              <p className="text-xs text-gray-600 mt-3">{retagResult}</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

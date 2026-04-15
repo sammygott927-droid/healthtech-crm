@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -23,10 +23,72 @@ export default function NewContactPage() {
     email: '',
     phone: '',
     last_contact_date: new Date().toISOString().split('T')[0],
+    initial_notes: '',
   })
+
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([])
+  const [customTag, setCustomTag] = useState('')
+  const [loadingTags, setLoadingTags] = useState(false)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  // Debounced tag suggestions whenever company/role/sector/notes change
+  useEffect(() => {
+    const { company, role, sector, initial_notes, name } = form
+
+    // Only fetch if we have enough context
+    if (!company.trim() && !role.trim() && !initial_notes.trim()) {
+      setSuggestedTags([])
+      return
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    debounceRef.current = setTimeout(async () => {
+      setLoadingTags(true)
+      try {
+        const res = await fetch('/api/suggest-tags', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, role, company, sector, notes: initial_notes }),
+        })
+        const data = await res.json()
+        if (Array.isArray(data.tags)) {
+          // Merge with existing suggestions — don't overwrite tags the user may have deleted
+          setSuggestedTags((prev) => {
+            const prevLower = new Set(prev.map(t => t.toLowerCase()))
+            const newOnes = data.tags.filter((t: string) => !prevLower.has(t.toLowerCase()))
+            return [...prev, ...newOnes]
+          })
+        }
+      } catch (err) {
+        console.error('Tag suggestion failed:', err)
+      } finally {
+        setLoadingTags(false)
+      }
+    }, 800)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [form.company, form.role, form.sector, form.initial_notes, form.name])
+
+  function removeTag(tag: string) {
+    setSuggestedTags((prev) => prev.filter((t) => t !== tag))
+  }
+
+  function addCustomTag() {
+    const trimmed = customTag.trim()
+    if (!trimmed) return
+    if (suggestedTags.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setCustomTag('')
+      return
+    }
+    setSuggestedTags((prev) => [...prev, trimmed])
+    setCustomTag('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -39,10 +101,15 @@ export default function NewContactPage() {
     setSaving(true)
     setError('')
 
+    const payload = {
+      ...form,
+      tags: suggestedTags,
+    }
+
     const res = await fetch('/api/contacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(payload),
     })
 
     if (!res.ok) {
@@ -53,6 +120,21 @@ export default function NewContactPage() {
     }
 
     const contact = await res.json()
+
+    // If there's an initial note, save it as a real note on the contact
+    if (form.initial_notes.trim()) {
+      const firstLine = form.initial_notes.trim().split('\n')[0].slice(0, 120)
+      await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact_id: contact.id,
+          summary: firstLine,
+          full_notes: form.initial_notes.trim(),
+        }),
+      })
+    }
+
     router.push(`/contacts/${contact.id}`)
   }
 
@@ -111,6 +193,74 @@ export default function NewContactPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
               placeholder="e.g., home health, value-based care, pre-seed healthtech"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Initial Notes</label>
+            <p className="text-xs text-gray-400 mb-1">How you met, thesis areas, topics discussed. Helps generate specific tags.</p>
+            <textarea
+              value={form.initial_notes}
+              onChange={(e) => updateField('initial_notes', e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"
+              placeholder="e.g., Met at JPM. Focus is VBC partnerships with Medicare Advantage plans, particularly in pulmonary rehab..."
+            />
+          </div>
+
+          {/* Auto-suggested Tags */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">Tags</label>
+              {loadingTags && <span className="text-xs text-gray-400">Generating...</span>}
+            </div>
+            <p className="text-xs text-gray-400 mb-2">
+              AI-suggested tags appear as you fill in the fields above. Remove any you don&apos;t want.
+            </p>
+
+            <div className="flex flex-wrap gap-2 mb-2 min-h-[32px]">
+              {suggestedTags.length === 0 && !loadingTags && (
+                <span className="text-xs text-gray-400 italic">No tags yet — start typing role, company, or notes.</span>
+              )}
+              {suggestedTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 px-2.5 py-1 rounded text-sm"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => removeTag(tag)}
+                    className="text-purple-400 hover:text-purple-700 ml-0.5"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customTag}
+                onChange={(e) => setCustomTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addCustomTag()
+                  }
+                }}
+                placeholder="Add a custom tag..."
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
+              />
+              <button
+                type="button"
+                onClick={addCustomTag}
+                disabled={!customTag.trim()}
+                className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
