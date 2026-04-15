@@ -75,7 +75,7 @@ export async function inferSectorForContact(
         .join('\n\n')
     : '(no notes)'
 
-  const prompt = `You are a healthcare networking CRM assistant. Based on this contact's profile and notes, infer a single specific healthcare sector/niche that best describes where they work or focus.
+  const prompt = `You are a healthcare networking CRM assistant. Infer a single specific healthcare sector/niche for this contact.
 
 Contact:
 - Name: ${context.name}
@@ -86,26 +86,51 @@ Contact:
 Notes:
 ${notesBlock}
 
+PROCESS:
+1. FIRST, use the web_search tool to look up what the company actually does. Search queries like "${context.company || context.name} healthcare" or "${context.company || context.name} company what does it do". For investors/funds, search the firm name + "portfolio" or "healthcare investments" to see their thesis.
+2. Ground your answer in what search reveals about the company's actual business — clinical domain, patient population, care setting, or investment thesis. Do NOT guess from the company name alone.
+3. If the notes contradict or refine what search shows, trust the notes — they came from a real conversation.
+4. Then produce the sector per the style guidance below.
+
 ${SECTOR_STYLE_GUIDANCE}
 
-Return ONLY the sector string as plain text — no JSON, no quotes, no explanation. If you genuinely can't tell from the info, return the single word: UNKNOWN`
+OUTPUT FORMAT — STRICT:
+After any web search, your FINAL message must be ONLY the sector string on a single line — no JSON, no quotes, no citations, no explanation, no preamble like "Sector:". Just the phrase itself (e.g. "home health" or "Series A women's health investing"). If you genuinely cannot determine the sector even after searching, output the single word: UNKNOWN`
 
   let text: string
   try {
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 60,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: prompt }],
+      tools: [
+        {
+          type: 'web_search_20250305',
+          name: 'web_search',
+          max_uses: 3,
+        },
+      ],
     })
-    text = response.content[0].type === 'text' ? response.content[0].text : ''
+    // Web search produces multiple content blocks (server_tool_use, web_search_tool_result, text).
+    // The final answer is in the LAST text block.
+    const textBlocks = response.content.filter(
+      (b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text'
+    )
+    text = textBlocks.length > 0 ? textBlocks[textBlocks.length - 1].text : ''
   } catch (err) {
     throw new Error(`Sector inference: AI call failed (${String(err)})`)
   }
 
-  // Clean: trim, strip surrounding quotes, collapse whitespace
-  const cleaned = text
-    .trim()
+  // Clean: trim, strip surrounding quotes, take only the last non-empty line
+  // (in case Claude adds reasoning above despite the instruction)
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+  const lastLine = lines[lines.length - 1] || ''
+  const cleaned = lastLine
     .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^sector:\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim()
 
