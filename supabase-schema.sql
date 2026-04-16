@@ -11,6 +11,7 @@ create table contacts (
   referral_source text,
   status text default 'Active' check (status in ('Active', 'Warm', 'Cold', 'Dormant')),
   next_step text,
+  next_step_date date,
   email text,
   phone text,
   follow_up_cadence_days integer default 60,

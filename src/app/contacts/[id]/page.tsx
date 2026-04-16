@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import MaskedField from '@/components/MaskedField'
+import EditContactModal from '@/components/EditContactModal'
 
 interface Tag {
   id: string
@@ -31,6 +32,7 @@ interface Contact {
   referral_source: string | null
   status: string | null
   next_step: string | null
+  next_step_date: string | null
   email: string | null
   phone: string | null
   follow_up_cadence_days: number
@@ -81,6 +83,9 @@ export default function ContactDetailPage() {
   const [noteSaving, setNoteSaving] = useState(false)
   // Per-note "show raw notes" toggle — keyed by note id
   const [expandedRaw, setExpandedRaw] = useState<Set<string>>(new Set())
+
+  // Edit contact modal
+  const [showEditModal, setShowEditModal] = useState(false)
 
   const fetchContact = useCallback(async () => {
     const res = await fetch(`/api/contacts/${id}`)
@@ -170,7 +175,28 @@ export default function ContactDetailPage() {
         </Link>
 
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 relative">
+          <button
+            onClick={() => setShowEditModal(true)}
+            className="absolute top-4 right-4 p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+            aria-label="Edit contact"
+            title="Edit contact"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+          </button>
           <h1 className="text-2xl font-bold text-gray-900">{contact.name}</h1>
           <p className="text-gray-600 mt-1">
             {contact.role && <span>{contact.role}</span>}
@@ -262,9 +288,14 @@ export default function ContactDetailPage() {
             ) : (
               <button
                 onClick={() => { setNextStepDraft(contact.next_step || ''); setEditingNextStep(true) }}
-                className="text-sm text-gray-900 hover:bg-gray-100 px-2 py-1 rounded"
+                className="text-sm text-gray-900 hover:bg-gray-100 px-2 py-1 rounded text-left"
               >
                 {contact.next_step || 'None set'} ✎
+                {contact.next_step_date && (
+                  <span className="ml-2 text-xs text-gray-500">
+                    by {new Date(contact.next_step_date).toLocaleDateString()}
+                  </span>
+                )}
               </button>
             )}
           </div>
@@ -501,6 +532,29 @@ export default function ContactDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit contact modal (Task 2) */}
+      {showEditModal && (
+        <EditContactModal
+          contact={{
+            id: contact.id,
+            name: contact.name,
+            role: contact.role,
+            company: contact.company,
+            sector: contact.sector,
+            email: contact.email,
+            phone: contact.phone,
+            referral_source: contact.referral_source,
+            status: contact.status,
+            next_step: contact.next_step,
+            next_step_date: contact.next_step_date,
+            last_contact_date: contact.last_contact_date,
+            follow_up_cadence_days: contact.follow_up_cadence_days,
+          }}
+          onClose={() => setShowEditModal(false)}
+          onSaved={() => fetchContact()}
+        />
+      )}
     </div>
   )
 }
