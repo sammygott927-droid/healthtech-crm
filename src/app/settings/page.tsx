@@ -159,10 +159,23 @@ export default function SettingsPage() {
       const res = await fetch('/api/restructure-notes-all?force=1', { method: 'POST' })
       const { ok, data, rawText } = await safeParse(res)
       if (ok) {
-        setRestructureResult(
-          `Restructured ${data.processed} of ${data.total} notes.` +
-            (Number(data.errors) > 0 ? ` ${data.errors} errors.` : '')
-        )
+        const processed = Number(data.processed) || 0
+        const total = Number(data.total) || 0
+        const skipped = Number(data.skipped) || 0
+        const errors = Number(data.errors) || 0
+        const elapsed = data.elapsed_seconds ? ` (${data.elapsed_seconds}s)` : ''
+
+        if (total === 0) {
+          setRestructureResult(
+            `No notes found in the database. ${data.message ? `(${data.message})` : ''}`
+          )
+        } else {
+          setRestructureResult(
+            `Restructured ${processed} of ${total} notes${elapsed}.` +
+              (skipped > 0 ? ` ${skipped} skipped.` : '') +
+              (errors > 0 ? ` ${errors} errors.` : '')
+          )
+        }
       } else {
         setRestructureResult(`Error: ${(data.error as string) || rawText?.slice(0, 200) || 'Unknown error'}`)
       }
