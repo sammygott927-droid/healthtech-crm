@@ -4,6 +4,7 @@ import { fetchGoogleNews, fetchFromCustomSources, NewsItem } from '@/lib/news-fe
 import Anthropic from '@anthropic-ai/sdk'
 import { sendDailyDigest } from '@/lib/send-digest'
 import { dedupeActionsByContact } from '@/lib/dedupe-actions'
+import { deduplicateArticles } from '@/lib/dedupe-articles'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -55,40 +56,6 @@ function computeSignalBoost(title: string): number {
     if (pattern.test(title)) return 3
   }
   return 0
-}
-
-function deduplicateArticles(articles: NewsItem[]): NewsItem[] {
-  const groups: { representative: NewsItem; tier: number }[] = []
-
-  for (const article of articles) {
-    const titleWords = new Set(
-      article.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 3)
-    )
-
-    let matched = false
-    for (const group of groups) {
-      const groupWords = new Set(
-        group.representative.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 3)
-      )
-      const overlap = [...titleWords].filter((w) => groupWords.has(w)).length
-      const similarity = overlap / Math.min(titleWords.size, groupWords.size)
-      if (similarity > 0.5) {
-        const articleTier = getSourceTier(article.source)
-        if (articleTier < group.tier) {
-          group.representative = article
-          group.tier = articleTier
-        }
-        matched = true
-        break
-      }
-    }
-
-    if (!matched) {
-      groups.push({ representative: article, tier: getSourceTier(article.source) })
-    }
-  }
-
-  return groups.map((g) => g.representative)
 }
 
 const HEALTHCARE_BROAD = /\bhealth(?:care|tech)?\b|\bmedic(?:al|ine|aid|are)\b|\bclinic(?:al)?\b|\bpatient\b|\bpharma\b|\bbiotech\b|\bFDA\b|\bCMS\b|\bpayer\b|\bprovider\b|\binsur(?:ance|er)\b|\bhospital\b|\btherapeutic\b|\bdiagnostic\b/i
@@ -253,9 +220,13 @@ async function runDailyBrief(request: NextRequest) {
 
     const allRaw = [...rssItems, ...googleResults]
 
-    // Deduplicate
-    const deduped = deduplicateArticles(allRaw)
-    console.log(`[brief] After dedup: ${deduped.length} (from ${allRaw.length} raw)`)
+    // Deduplicate. Two-stage with proper-noun anchoring + merge-until-stable
+    // (see src/lib/dedupe-articles.ts for the reasoning behind each rule).
+    const dedupResult = deduplicateArticles(allRaw, getSourceTier)
+    const deduped = dedupResult.articles
+    console.log(
+      `[brief] After dedup: ${deduped.length} unique (from ${dedupResult.raw_count} raw, ${dedupResult.merges} merges)`
+    )
 
     // ═══ STEP 3: Pre-filter ═══
     const preFiltered: (NewsItem & { signal_boost: number })[] = []
@@ -282,21 +253,66 @@ async function runDailyBrief(request: NextRequest) {
     }
 
     // ═══ STEP 4: Skip articles already stored today ═══
+    // Run today's stored headlines through the SAME dedup function as the
+    // in-memory pass, so a re-run of the pipeline can't reintroduce a
+    // re-worded version of the same story (e.g. "FDA approves Dupixent…"
+    // already stored, then later we see "Sanofi's Dupixent gets pediatric
+    // nod" from a different feed).
     const { data: todayHeadlines } = await supabase
       .from('daily_briefs')
-      .select('headline')
+      .select('headline, source_name')
       .gte('created_at', startOfDay)
 
-    const alreadyStored = new Set(
-      (todayHeadlines || []).map((r) => (r.headline as string).toLowerCase().trim())
+    // Mark stored items with a sentinel source so we can tell them apart
+    // from fresh candidates in the combined dedup pass below. The sentinel
+    // is also force-tier-0 (best), so on a merge the stored item wins as
+    // representative and the candidate is dropped.
+    const STORED_SENTINEL = '__already_stored__'
+
+    const storedAsItems: NewsItem[] = (todayHeadlines || []).map((r) => ({
+      title: r.headline as string,
+      link: '',
+      pubDate: '',
+      source: STORED_SENTINEL,
+    }))
+
+    const candidatesAsItems: NewsItem[] = preFiltered.map((a) => ({
+      title: a.title,
+      link: a.link,
+      pubDate: a.pubDate,
+      source: a.source,
+    }))
+
+    const combined = [...storedAsItems, ...candidatesAsItems]
+    const tierForCombined = (src: string) =>
+      src === STORED_SENTINEL ? 0 : getSourceTier(src)
+    const combinedDedup = deduplicateArticles(combined, tierForCombined)
+
+    // After dedup: any group whose representative source is the sentinel
+    // belongs to a story already in the DB → drop it. Any group whose
+    // representative source is NOT the sentinel is a fresh candidate.
+    const freshCandidateTitles = new Set(
+      combinedDedup.articles
+        .filter((a) => a.source !== STORED_SENTINEL)
+        .map((a) => a.title)
     )
 
-    const newArticles = preFiltered.filter(
-      (a) => !alreadyStored.has(a.title.toLowerCase().trim())
-    )
+    const newArticles = preFiltered.filter((a) => freshCandidateTitles.has(a.title))
+
+    const dupedAgainstStored = preFiltered.length - newArticles.length
+    if (dupedAgainstStored > 0) {
+      console.log(
+        `[brief] Skipped ${dupedAgainstStored} candidates that match stories already stored today`
+      )
+    }
 
     if (newArticles.length === 0) {
-      return NextResponse.json({ success: true, brief_count: 0, action_count: 0, message: 'All articles already processed today' })
+      return NextResponse.json({
+        success: true,
+        brief_count: 0,
+        action_count: 0,
+        message: 'All articles already processed today',
+      })
     }
 
     console.log(`[brief] New articles to score: ${newArticles.length}`)
