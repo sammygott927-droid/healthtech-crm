@@ -32,8 +32,6 @@ export default function SettingsPage() {
   const [retagResult, setRetagResult] = useState<string>('')
   const [restructuring, setRestructuring] = useState(false)
   const [restructureResult, setRestructureResult] = useState<string>('')
-  const [reinferring, setReinferring] = useState(false)
-  const [reinferResult, setReinferResult] = useState<string>('')
 
   // News sources state
   const [sources, setSources] = useState<NewsSource[]>([])
@@ -183,72 +181,6 @@ export default function SettingsPage() {
       setRestructureResult(`Error: ${String(err)}`)
     } finally {
       setRestructuring(false)
-    }
-  }
-
-  async function handleReinferSectors() {
-    if (!confirm('Re-infer a specific niche healthcare sector for every contact using their profile + notes? This will OVERWRITE the current sector field (e.g. "Healthcare" → "value-based care / Medicare Advantage"). Contacts are processed in batches of 20 — this may take a few minutes.')) return
-
-    setReinferring(true)
-    setReinferResult('Starting...')
-
-    const BATCH_SIZE = 20
-    let offset = 0
-    let total = 0
-    let totalUpdated = 0
-    let totalSkipped = 0
-    let totalErrors = 0
-    let batchNum = 0
-
-    try {
-      // Loop until the server says done
-      // Safety cap to avoid a runaway loop if the server misbehaves
-      for (let i = 0; i < 100; i++) {
-        batchNum++
-        const res = await fetch(`/api/reinfer-sectors-all?offset=${offset}&limit=${BATCH_SIZE}`, {
-          method: 'POST',
-        })
-        const { ok, data, rawText } = await safeParse(res)
-
-        if (!ok) {
-          const errMsg = (data.error as string) || rawText?.slice(0, 200) || 'Unknown error'
-          const hint = rawText?.toLowerCase().includes('timed out') || rawText?.toLowerCase().includes('an error occurred')
-            ? ' (A batch timed out. Partial progress above was saved.)'
-            : ''
-          setReinferResult(`Error on batch ${batchNum}: ${errMsg}${hint}${totalUpdated > 0 ? ` — ${totalUpdated} contacts updated before this failure.` : ''}`)
-          return
-        }
-
-        total = Number(data.total) || total
-        totalUpdated += Number(data.updated) || 0
-        totalSkipped += Number(data.skipped) || 0
-        totalErrors += Number(data.errors) || 0
-
-        const totalBatches = Math.max(1, Math.ceil(total / BATCH_SIZE))
-        const rangeStart = offset + 1
-        const rangeEnd = offset + (Number(data.batch_size) || 0)
-
-        if (data.done) {
-          setReinferResult(
-            `Done. Updated ${totalUpdated} of ${total} contacts.` +
-              (totalSkipped > 0 ? ` ${totalSkipped} skipped (UNKNOWN).` : '') +
-              (totalErrors > 0 ? ` ${totalErrors} errors.` : '')
-          )
-          return
-        }
-
-        setReinferResult(
-          `Processing batch ${batchNum} of ${totalBatches}... (contacts ${rangeStart}-${rangeEnd} of ${total}) — ${totalUpdated} updated so far`
-        )
-
-        offset = Number(data.next_offset) || (offset + BATCH_SIZE)
-      }
-
-      setReinferResult(`Stopped after 100 batches to avoid a runaway loop. ${totalUpdated} updated.`)
-    } catch (err) {
-      setReinferResult(`Error on batch ${batchNum}: ${String(err)}${totalUpdated > 0 ? ` — ${totalUpdated} contacts updated before this failure.` : ''}`)
-    } finally {
-      setReinferring(false)
     }
   }
 
@@ -479,18 +411,15 @@ export default function SettingsPage() {
           <div className="mt-6 pt-6 border-t border-gray-200">
             <h3 className="text-sm font-medium text-gray-700 mb-1">Re-infer all sectors</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Uses AI to replace generic sectors (e.g. &quot;Healthcare&quot;, &quot;Digital Health&quot;) with specific niches mined from notes (e.g. &quot;value-based care / Medicare Advantage&quot;, &quot;pulmonary rehab&quot;, &quot;Series A healthtech&quot;). Overwrites the sector field.
+              Bulk sector re-inference uses Claude with web search and frequently exceeds Vercel&apos;s function timeout. Run it locally from your terminal instead — there&apos;s no server time limit and you&apos;ll see real-time per-contact progress in the console.
             </p>
-            <button
-              onClick={handleReinferSectors}
-              disabled={reinferring}
-              className="bg-purple-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50 text-sm transition-colors"
-            >
-              {reinferring ? 'Re-inferring... (this may take a few minutes)' : 'Re-infer All Sectors'}
-            </button>
-            {reinferResult && (
-              <p className="text-xs text-gray-600 mt-3">{reinferResult}</p>
-            )}
+            <p className="text-xs text-gray-700 mb-2 font-medium">From your project root, run:</p>
+            <pre className="bg-gray-900 text-gray-100 rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto select-all">
+              unset ANTHROPIC_API_KEY && node --env-file=.env.local scripts/reinfer-sectors.js --force
+            </pre>
+            <p className="text-xs text-gray-500 mt-2">
+              Drop <code className="bg-gray-100 px-1 rounded text-[11px]">--force</code> to only process contacts that don&apos;t already have a specific sector. Need a per-contact one-off? Use the <strong>Re-infer</strong> button next to the sector field on a contact&apos;s detail page.
+            </p>
           </div>
         </div>
       </div>
