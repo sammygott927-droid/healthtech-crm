@@ -59,6 +59,7 @@ export default function WatchlistPage() {
 
   // Per-row Re-infer state (set of row ids currently re-inferring)
   const [reinferringIds, setReinferringIds] = useState<Set<string>>(new Set())
+  const [reinferringTypeIds, setReinferringTypeIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
   const load = useCallback(async () => {
@@ -101,6 +102,41 @@ export default function WatchlistPage() {
       setToast({ message: 'Failed to update type', variant: 'error' })
       // Re-load to get the canonical state on error
       await load()
+    }
+  }
+
+  async function reinferType(id: string, company: string) {
+    if (reinferringTypeIds.has(id)) return
+    setReinferringTypeIds((prev) => new Set(prev).add(id))
+    try {
+      const res = await fetch(`/api/watchlist/${id}/reinfer-type`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setToast({
+          message: data.error || `Failed for ${company} (${res.status})`,
+          variant: 'error',
+        })
+        return
+      }
+      setToast({
+        message: `Type updated to: ${data.type}`,
+        variant: 'success',
+      })
+      // Update the row in place so the new badge shows immediately
+      setEntries((prev) =>
+        prev.map((row) => (row.id === id ? { ...row, type: data.type } : row))
+      )
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : `Re-infer failed for ${company}`,
+        variant: 'error',
+      })
+    } finally {
+      setReinferringTypeIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -433,33 +469,69 @@ export default function WatchlistPage() {
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{e.company}</td>
                     <td className="px-4 py-3">
-                      <div className="relative inline-block">
-                        {e.type ? (
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[e.type]}`}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="relative inline-block">
+                          {e.type ? (
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[e.type]}`}
+                            >
+                              {e.type}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                          {/* Hidden select sits on top so the badge is editable */}
+                          <select
+                            value={e.type || ''}
+                            onChange={(ev) =>
+                              updateType(e.id, ev.target.value as WatchlistType | '')
+                            }
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            aria-label={`Edit type for ${e.company}`}
+                            title="Click to change type"
                           >
-                            {e.type}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-400 italic">Inferring…</span>
-                        )}
-                        {/* Hidden select sits on top to make the badge editable */}
-                        <select
-                          value={e.type || ''}
-                          onChange={(ev) =>
-                            updateType(e.id, ev.target.value as WatchlistType | '')
-                          }
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          aria-label={`Edit type for ${e.company}`}
-                          title="Click to change type"
+                            <option value="">— (clear)</option>
+                            {WATCHLIST_TYPES.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => reinferType(e.id, e.company)}
+                          disabled={reinferringTypeIds.has(e.id)}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1.5 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          title="Re-infer type"
                         >
-                          <option value="">— (clear)</option>
-                          {WATCHLIST_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
+                          {reinferringTypeIds.has(e.id) ? (
+                            <>
+                              <svg
+                                className="animate-spin h-3 w-3"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
+                              </svg>
+                              …
+                            </>
+                          ) : (
+                            'Re-infer'
+                          )}
+                        </button>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
