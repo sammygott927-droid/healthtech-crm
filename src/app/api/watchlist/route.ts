@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse, after } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { inferWatchlistType, WATCHLIST_TYPES, type WatchlistType } from '@/lib/infer-watchlist-type'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// Inline type inference can take up to ~11s (tier 1 ~1s + tier 2 web search
+// with a 10s hard timeout). Give the route headroom.
+export const maxDuration = 30
 
 const TYPE_SET = new Set<string>(WATCHLIST_TYPES)
 
@@ -68,16 +70,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // Background type inference if no explicit type was supplied
+  // Inline type inference if no explicit type was supplied. Tier 1 is fast
+  // (~1s for obvious cases) and tier 2's web search has a 10s hard timeout,
+  // so worst-case is ~11s — well within maxDuration. Returning the typed
+  // row in the response means the UI never has to poll.
+  let finalType = data.type
   if (!explicitType) {
-    after(async () => {
-      try {
-        await inferWatchlistType(data.id, { company: data.company, sector, reason })
-      } catch (err) {
-        console.error(`[watchlist POST] type inference failed for ${company}:`, err)
-      }
-    })
+    try {
+      finalType = await inferWatchlistType(data.id, {
+        company: data.company,
+        sector,
+        reason,
+      })
+    } catch (err) {
+      console.error(`[watchlist POST] type inference failed for ${company}:`, err)
+      // Even on failure, inferWatchlistType always persists *something* (defaults to 'Other')
+      // — but if the call itself threw, fall back to 'Other' here too.
+      finalType = 'Other'
+      await supabase.from('watchlist').update({ type: 'Other' }).eq('id', data.id)
+    }
   }
 
-  return NextResponse.json(data)
+  return NextResponse.json({ ...data, type: finalType })
 }
