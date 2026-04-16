@@ -121,16 +121,16 @@ export default function NewContactPage() {
 
     const contact = await res.json()
 
-    // If there's an initial note, save it as a real note on the contact
+    // If there's an initial note, save it as a real note on the contact.
+    // The new POST /api/notes pipeline takes the raw blob and runs AI
+    // summary + structuring + tag generation in the background.
     if (form.initial_notes.trim()) {
-      const firstLine = form.initial_notes.trim().split('\n')[0].slice(0, 120)
       await fetch('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contact_id: contact.id,
-          summary: firstLine,
-          full_notes: form.initial_notes.trim(),
+          raw_notes: form.initial_notes.trim(),
         }),
       })
     }

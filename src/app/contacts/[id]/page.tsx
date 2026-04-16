@@ -13,7 +13,11 @@ interface Tag {
 
 interface Note {
   id: string
-  summary: string
+  raw_notes: string | null
+  ai_summary: string | null
+  ai_structured: Record<string, string[]> | null
+  // Legacy fields (still returned for back-compat with old rows)
+  summary: string | null
   full_notes: string | null
   created_at: string
 }
@@ -71,12 +75,12 @@ export default function ContactDetailPage() {
   const [nextStepDraft, setNextStepDraft] = useState('')
   const [cadenceDraft, setCadenceDraft] = useState(60)
 
-  // Note form state
+  // Note form state — single textarea, AI handles the rest in the background.
   const [showNoteForm, setShowNoteForm] = useState(false)
-  const [noteSummary, setNoteSummary] = useState('')
-  const [noteFullText, setNoteFullText] = useState('')
+  const [noteRaw, setNoteRaw] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
-  const [showRawNotes, setShowRawNotes] = useState(false)
+  // Per-note "show raw notes" toggle — keyed by note id
+  const [expandedRaw, setExpandedRaw] = useState<Set<string>>(new Set())
 
   const fetchContact = useCallback(async () => {
     const res = await fetch(`/api/contacts/${id}`)
@@ -120,22 +124,36 @@ export default function ContactDetailPage() {
   }
 
   async function saveNote() {
-    if (!noteSummary.trim()) return
+    if (!noteRaw.trim()) return
     setNoteSaving(true)
     await fetch('/api/notes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contact_id: id,
-        summary: noteSummary.trim(),
-        full_notes: noteFullText.trim() || null,
+        raw_notes: noteRaw.trim(),
       }),
     })
-    setNoteSummary('')
-    setNoteFullText('')
+    setNoteRaw('')
     setShowNoteForm(false)
     setNoteSaving(false)
     fetchContact()
+
+    // Poll briefly so the AI summary appears once Claude finishes
+    // (typically 2-6s). Three retries spaced 3s apart is enough.
+    for (let i = 0; i < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await fetchContact()
+    }
+  }
+
+  function toggleRaw(noteId: string) {
+    setExpandedRaw((prev) => {
+      const next = new Set(prev)
+      if (next.has(noteId)) next.delete(noteId)
+      else next.add(noteId)
+      return next
+    })
   }
 
   if (loading || !contact) {
@@ -321,7 +339,7 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
-        {/* Notes */}
+        {/* Notes — one conversation card per note, newest first */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-700">Notes</h2>
@@ -333,74 +351,30 @@ export default function ContactDetailPage() {
             </button>
           </div>
 
-          {/* AI Summary */}
-          {contact.notes_summary && (
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4">
-              <p className="text-xs uppercase tracking-wide text-blue-700 font-semibold mb-1">Summary</p>
-              <p className="text-sm text-gray-900">{contact.notes_summary}</p>
-            </div>
-          )}
-
-          {/* Structured Categories */}
-          {contact.notes_structured && Object.keys(contact.notes_structured).length > 0 && (
-            <div className="space-y-4 mb-4">
-              {NOTE_CATEGORY_ORDER.map((cat) => {
-                const bullets = contact.notes_structured?.[cat]
-                if (!Array.isArray(bullets) || bullets.length === 0) return null
-                return (
-                  <div key={cat}>
-                    <h3 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1.5">{cat}</h3>
-                    <ul className="space-y-1">
-                      {bullets.map((b, i) => (
-                        <li key={i} className="text-sm text-gray-800 pl-4 relative">
-                          <span className="absolute left-0 text-gray-400">•</span>
-                          {b}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Toggle for raw notes */}
-          {contact.notes.length > 0 && (contact.notes_summary || contact.notes_structured) && (
-            <button
-              onClick={() => setShowRawNotes((v) => !v)}
-              className="text-xs text-blue-600 hover:underline mb-3"
-            >
-              {showRawNotes ? 'Hide raw notes' : `Show raw notes (${contact.notes.length})`}
-            </button>
-          )}
-
           {showNoteForm && (
             <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-gray-50">
-              <input
-                type="text"
-                placeholder="Summary (required)"
-                value={noteSummary}
-                onChange={(e) => setNoteSummary(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm mb-2 text-gray-900 placeholder-gray-400"
-                autoFocus
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <p className="text-xs text-gray-500 mb-2">
+                Paste raw notes in any format. AI will summarize and organize them in the background.
+              </p>
               <textarea
-                placeholder="Full notes (optional)"
-                value={noteFullText}
-                onChange={(e) => setNoteFullText(e.target.value)}
-                rows={3}
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm mb-2 text-gray-900 placeholder-gray-400"
+                placeholder="Paste your conversation notes here..."
+                value={noteRaw}
+                onChange={(e) => setNoteRaw(e.target.value)}
+                rows={10}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 text-gray-900 placeholder-gray-400 font-mono"
+                autoFocus
               />
               <div className="flex gap-2 justify-end">
                 <button
-                  onClick={() => setShowNoteForm(false)}
+                  onClick={() => { setShowNoteForm(false); setNoteRaw('') }}
                   className="text-sm text-gray-600 px-3 py-1.5"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={saveNote}
-                  disabled={!noteSummary.trim() || noteSaving}
+                  disabled={!noteRaw.trim() || noteSaving}
                   className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                 >
                   {noteSaving ? 'Saving...' : 'Save Note'}
@@ -409,24 +383,121 @@ export default function ContactDetailPage() {
             </div>
           )}
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {contact.notes.length === 0 && (
-              <p className="text-sm text-gray-400">No notes yet. Add one to start tracking interactions.</p>
+              <p className="text-sm text-gray-400">
+                No notes yet. Add one to start tracking interactions.
+              </p>
             )}
-            {contact.notes.length > 0 && !contact.notes_summary && !contact.notes_structured && (
-              <p className="text-xs text-gray-400 italic">Structured view generates in the background after a note is saved.</p>
-            )}
-            {(showRawNotes || (!contact.notes_summary && !contact.notes_structured)) &&
-              contact.notes.map((n) => (
-                <div key={n.id} className="border-l-2 border-gray-200 pl-4 py-1">
-                  <p className="text-sm font-medium text-gray-900">{n.summary}</p>
-                  {n.full_notes && <p className="text-sm text-gray-600 mt-1">{n.full_notes}</p>}
-                  <p className="text-xs text-gray-400 mt-1">
-                    {new Date(n.created_at).toLocaleDateString()} at{' '}
-                    {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+            {contact.notes.map((n) => {
+              const isProcessing = !n.ai_summary && !n.ai_structured
+              const rawText = n.raw_notes || n.full_notes || n.summary || ''
+              const showingRaw = expandedRaw.has(n.id)
+              const hasStructured =
+                n.ai_structured && Object.keys(n.ai_structured).length > 0
+
+              return (
+                <div
+                  key={n.id}
+                  className="border border-gray-200 rounded-lg p-4 bg-white"
+                >
+                  {/* Date/time */}
+                  <p className="text-xs text-gray-500 font-medium mb-3">
+                    {new Date(n.created_at).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}{' '}
+                    at{' '}
+                    {new Date(n.created_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </p>
+
+                  {/* AI summary or processing state */}
+                  {n.ai_summary ? (
+                    <div className="bg-blue-50 border border-blue-100 rounded p-3 mb-3">
+                      <p className="text-xs uppercase tracking-wide text-blue-700 font-semibold mb-1">
+                        Summary
+                      </p>
+                      <p className="text-sm text-gray-900">{n.ai_summary}</p>
+                    </div>
+                  ) : isProcessing ? (
+                    <div className="bg-gray-50 border border-gray-100 rounded p-3 mb-3 text-xs text-gray-500 italic flex items-center gap-2">
+                      <svg
+                        className="animate-spin h-3 w-3 text-gray-400"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
+                      </svg>
+                      AI is summarizing this note…
+                    </div>
+                  ) : null}
+
+                  {/* Structured categories */}
+                  {hasStructured && (
+                    <div className="space-y-3 mb-3">
+                      {NOTE_CATEGORY_ORDER.map((cat) => {
+                        const bullets = n.ai_structured?.[cat]
+                        if (!Array.isArray(bullets) || bullets.length === 0) return null
+                        return (
+                          <div key={cat}>
+                            <h3 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">
+                              {cat}
+                            </h3>
+                            <ul className="space-y-1">
+                              {bullets.map((b, i) => (
+                                <li
+                                  key={i}
+                                  className="text-sm text-gray-800 pl-4 relative"
+                                >
+                                  <span className="absolute left-0 text-gray-400">•</span>
+                                  {b}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Show raw notes toggle at bottom */}
+                  {rawText && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <button
+                        onClick={() => toggleRaw(n.id)}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        {showingRaw ? 'Hide raw notes' : 'Show raw notes'}
+                      </button>
+                      {showingRaw && (
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap mt-2 font-mono bg-gray-50 p-3 rounded border border-gray-200">
+                          {rawText}
+                        </pre>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
+              )
+            })}
           </div>
         </div>
       </div>

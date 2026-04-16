@@ -9,7 +9,9 @@ export async function GET(
 
   const { data: contact, error } = await supabase
     .from('contacts')
-    .select('*, tags(id, tag, source), notes(id, summary, full_notes, created_at)')
+    .select(
+      '*, tags(id, tag, source), notes(id, raw_notes, ai_summary, ai_structured, summary, full_notes, created_at)'
+    )
     .eq('id', id)
     .single()
 

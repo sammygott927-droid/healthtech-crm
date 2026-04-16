@@ -25,10 +25,16 @@ create table contacts (
 --   alter table contacts add column if not exists notes_structured jsonb;
 
 -- 2. Notes table
+-- Per-note AI summary + structured categories. raw_notes is what the user
+-- pasted; ai_summary and ai_structured are populated in the background by
+-- Claude after insert. Old summary/full_notes kept nullable for back-compat.
 create table notes (
   id uuid default gen_random_uuid() primary key,
   contact_id uuid references contacts(id) on delete cascade not null,
-  summary text not null,
+  raw_notes text,
+  ai_summary text,
+  ai_structured jsonb,
+  summary text,
   full_notes text,
   created_at timestamptz default now()
 );

@@ -1,61 +1,82 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { structureNotesForContact } from '@/lib/structure-notes'
+import { structureSingleNote } from '@/lib/structure-notes'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-// Rebuild the structured notes view for every contact that has at least one note.
-// Contacts with no notes are skipped (and their fields left as-is).
+/**
+ * Backfill per-note AI summary + structured categories for every note that
+ * is missing them. This is the maintenance counterpart to the new per-note
+ * pipeline introduced in the notes redesign (Task 1).
+ */
 export async function POST() {
   try {
-    const { data: contacts, error } = await supabase
-      .from('contacts')
-      .select('id, name, role, company, sector, notes(summary, full_notes, created_at)')
+    // Find notes that have raw content but no AI summary yet
+    const { data: notes, error } = await supabase
+      .from('notes')
+      .select(
+        'id, contact_id, raw_notes, summary, full_notes, ai_summary, contacts(name, role, company, sector)'
+      )
+      .is('ai_summary', null)
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    if (!contacts || contacts.length === 0) {
-      return NextResponse.json({ message: 'No contacts found', processed: 0 })
+    if (!notes || notes.length === 0) {
+      return NextResponse.json({
+        message: 'No notes need structuring',
+        processed: 0,
+      })
     }
 
-    const withNotes = contacts.filter((c) => Array.isArray(c.notes) && c.notes.length > 0)
+    const results: { id: string }[] = []
+    const errors: { id: string; error: string }[] = []
 
-    const results: { id: string; name: string }[] = []
-    const errors: { id: string; name: string; error: string }[] = []
+    for (const note of notes) {
+      const rawText =
+        note.raw_notes ||
+        [note.summary, note.full_notes].filter(Boolean).join('\n\n')
 
-    for (const contact of withNotes) {
+      if (!rawText.trim()) continue
+
+      // contacts is a single object when joined via foreign key — typed loose
+      // here because Supabase types it as a relation array.
+      const contact = Array.isArray(note.contacts)
+        ? note.contacts[0]
+        : note.contacts
+
+      if (!contact) continue
+
       try {
-        await structureNotesForContact(
-          contact.id,
+        await structureSingleNote(
+          note.id,
           {
             name: contact.name,
             role: contact.role,
             company: contact.company,
             sector: contact.sector,
           },
-          contact.notes as { summary: string; full_notes: string | null; created_at?: string }[]
+          rawText
         )
-        results.push({ id: contact.id, name: contact.name })
+        results.push({ id: note.id })
       } catch (err) {
-        errors.push({ id: contact.id, name: contact.name, error: String(err) })
+        errors.push({ id: note.id, error: String(err) })
       }
     }
 
     return NextResponse.json({
       success: true,
-      total_contacts: contacts.length,
-      contacts_with_notes: withNotes.length,
+      total_notes_needing_backfill: notes.length,
       processed: results.length,
       errors: errors.length,
       error_details: errors,
     })
   } catch (err) {
-    console.error('Restructure all failed:', err)
+    console.error('Restructure-notes-all failed:', err)
     return NextResponse.json(
-      { error: 'Restructure all failed', details: String(err) },
+      { error: 'Restructure failed', details: String(err) },
       { status: 500 }
     )
   }
