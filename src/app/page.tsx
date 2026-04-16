@@ -55,22 +55,28 @@ export default function HomePage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('brief')
+  const [briefError, setBriefError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [briefsRes, followUpsRes] = await Promise.all([
-      fetch('/api/briefs-today'),
-      fetch('/api/follow-ups'),
-    ])
-    const briefsData = await briefsRes.json()
-    const followUpsData = await followUpsRes.json()
+    try {
+      const [briefsRes, followUpsRes] = await Promise.all([
+        fetch('/api/briefs-today'),
+        fetch('/api/follow-ups'),
+      ])
+      const briefsData = await briefsRes.json()
+      const followUpsData = await followUpsRes.json()
 
-    setBriefItems(briefsData.brief || [])
-    setActionItems(briefsData.actions || [])
-    setHasRun(briefsData.has_run || false)
-    setUpcoming(followUpsData.upcoming || [])
-    setOverdue(followUpsData.overdue || [])
-    setLoading(false)
+      setBriefItems(briefsData.brief || [])
+      setActionItems(briefsData.actions || [])
+      setHasRun(briefsData.has_run || false)
+      setUpcoming(followUpsData.upcoming || [])
+      setOverdue(followUpsData.overdue || [])
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -79,9 +85,24 @@ export default function HomePage() {
 
   async function runBrief() {
     setRunningBrief(true)
-    await fetch('/api/daily-brief', { method: 'POST' })
-    await fetchData()
-    setRunningBrief(false)
+    setBriefError(null)
+    try {
+      console.log('[runBrief] Calling POST /api/daily-brief…')
+      const res = await fetch('/api/daily-brief', { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.text()
+        throw new Error(`Brief returned ${res.status}: ${body}`)
+      }
+      const data = await res.json()
+      console.log('[runBrief] Brief completed:', data)
+      // Refresh dashboard data after brief completes
+      await fetchData()
+    } catch (err) {
+      console.error('[runBrief] Error:', err)
+      setBriefError(err instanceof Error ? err.message : 'Brief failed — check console')
+    } finally {
+      setRunningBrief(false)
+    }
   }
 
   function copyText(id: string, text: string) {
@@ -136,11 +157,38 @@ export default function HomePage() {
           <button
             onClick={runBrief}
             disabled={runningBrief}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2"
           >
-            {runningBrief ? 'Running…' : hasRun ? 'Refresh Brief' : 'Run Brief Now'}
+            {runningBrief && (
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
+            {runningBrief ? 'Running brief…' : hasRun ? 'Refresh Brief' : 'Run Brief Now'}
           </button>
         </div>
+
+        {/* Error banner */}
+        {briefError && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-start gap-3">
+            <span className="text-red-500 text-sm font-medium flex-shrink-0">Error</span>
+            <p className="text-sm text-red-700 flex-1">{briefError}</p>
+            <button
+              onClick={() => setBriefError(null)}
+              className="text-red-400 hover:text-red-600 text-sm"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Running indicator */}
+        {runningBrief && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
+            Generating daily brief — this may take 1–2 minutes. Please keep this tab open.
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-gray-200 mb-6">
