@@ -131,7 +131,8 @@ export default function ContactDetailPage() {
   async function saveNote() {
     if (!noteRaw.trim()) return
     setNoteSaving(true)
-    await fetch('/api/notes', {
+
+    const res = await fetch('/api/notes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -139,16 +140,36 @@ export default function ContactDetailPage() {
         raw_notes: noteRaw.trim(),
       }),
     })
+    const inserted = res.ok ? await res.json().catch(() => null) : null
+    const newNoteId = inserted?.id
+
     setNoteRaw('')
     setShowNoteForm(false)
     setNoteSaving(false)
-    fetchContact()
+    await fetchContact()
 
-    // Poll briefly so the AI summary appears once Claude finishes
-    // (typically 2-6s). Three retries spaced 3s apart is enough.
-    for (let i = 0; i < 3; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-      await fetchContact()
+    // Poll up to 30s, stopping as soon as the new note has an ai_summary.
+    // The background AI job typically finishes in 5-15s on Vercel.
+    if (newNoteId) {
+      const start = Date.now()
+      const TIMEOUT_MS = 30_000
+      const INTERVAL_MS = 2000
+      while (Date.now() - start < TIMEOUT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS))
+        try {
+          const r = await fetch(`/api/contacts/${id}`)
+          if (!r.ok) continue
+          const data = await r.json()
+          setContact(data)
+          const target = data.notes?.find((n: Note) => n.id === newNoteId)
+          if (target?.ai_summary) {
+            // Done — AI summary populated
+            return
+          }
+        } catch {
+          // Ignore transient errors and keep polling
+        }
+      }
     }
   }
 
