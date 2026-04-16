@@ -8,14 +8,13 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 /* ================================================================
-   DAILY BRIEF PIPELINE v2 — clean two-output architecture
+   DAILY BRIEF PIPELINE v2.1 — optimized for speed
    ================================================================
-   Sources: all news_sources RSS feeds + Google News for every universe term
-   Universe: contact companies + watchlist companies + tags + sectors
-   Outputs:
-     1. Daily Brief tab: all articles with relevance_score >= 6 (news feed)
-     2. Daily Actions tab: top 5 contact-matched articles (outreach cards)
-   Both stored as individual rows in daily_briefs table.
+   - RSS sources fetched in parallel (unchanged)
+   - Google News: OR-grouped queries (5 terms per query), all parallel
+   - RSS + Google News fetched simultaneously
+   - Claude scoring: parallel batches of 5 articles
+   - Cache: if brief already ran today, return cached results immediately
    ================================================================ */
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -26,7 +25,6 @@ function getAnthropic() {
   return new Anthropic({ apiKey: key })
 }
 
-// Source reputation tiers for deduplication
 const SOURCE_TIERS: Record<string, number> = {
   'stat news': 1, statnews: 1, techcrunch: 1, wsj: 1, 'wall street journal': 1,
   bloomberg: 1, 'modern healthcare': 1, 'fierce healthcare': 1, 'medcity news': 1,
@@ -42,7 +40,6 @@ function getSourceTier(source: string): number {
   return 2
 }
 
-// Signal keywords that get a +3 boost in pre-filtering
 const SIGNAL_PATTERNS = [
   /\brais(?:es?|ed|ing)\b.*\$|\$.*\bmillion\b|\$.*\bbillion\b|\bfund(?:s|ed|ing|raise)\b/i,
   /\bacquir(?:e[sd]?|ing)\b|\bacquisition\b|\bmerger\b|\bmerge[sd]?\b|\bbuyout\b/i,
@@ -59,7 +56,6 @@ function computeSignalBoost(title: string): number {
   return 0
 }
 
-// Deduplicate articles by story — same event = one article, keep most reputable
 function deduplicateArticles(articles: NewsItem[]): NewsItem[] {
   const groups: { representative: NewsItem; tier: number }[] = []
 
@@ -94,7 +90,6 @@ function deduplicateArticles(articles: NewsItem[]): NewsItem[] {
   return groups.map((g) => g.representative)
 }
 
-// Healthcare-broad keywords for the relevance floor filter
 const HEALTHCARE_BROAD = /\bhealth(?:care|tech)?\b|\bmedic(?:al|ine|aid|are)\b|\bclinic(?:al)?\b|\bpatient\b|\bpharma\b|\bbiotech\b|\bFDA\b|\bCMS\b|\bpayer\b|\bprovider\b|\binsur(?:ance|er)\b|\bhospital\b|\btherapeutic\b|\bdiagnostic\b/i
 
 // ── Interfaces ───────────────────────────────────────────────────
@@ -138,8 +133,29 @@ export async function POST(request: NextRequest) {
 async function runDailyBrief(request: NextRequest) {
   const pipelineStart = Date.now()
   try {
-    // ═══ STEP 1: Build the universe ═══
     console.log('[brief] Pipeline starting…')
+
+    // ═══ CACHE CHECK: if brief already ran today, return cached results ═══
+    const today = new Date()
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString()
+
+    const { data: todayRows, error: cacheErr } = await supabase
+      .from('daily_briefs')
+      .select('id')
+      .gte('created_at', startOfDay)
+      .limit(1)
+
+    if (!cacheErr && todayRows && todayRows.length > 0) {
+      console.log(`[brief] Brief already ran today — returning cached results`)
+      return NextResponse.json({
+        success: true,
+        cached: true,
+        message: 'Brief already ran today. Results are cached in /api/briefs-today.',
+        elapsed_seconds: 0,
+      })
+    }
+
+    // ═══ STEP 1: Build the universe ═══
     const [
       { data: contacts },
       { data: watchlist },
@@ -164,27 +180,21 @@ async function runDailyBrief(request: NextRequest) {
       status: c.status as string | null,
     }))
 
-    // Universe terms — prioritized: companies first (most important),
-    // then watchlist, then tags + sectors (capped at 50 total for Google News).
-    // All terms still used for pre-filter matching, but only top 50 get searched.
-    const companyTerms: string[] = []    // highest priority — searched first
-    const secondaryTerms: string[] = []  // tags + sectors — fill remaining slots
-    const allTerms = new Set<string>()   // full set for pre-filter substring matching
+    // Company terms get searched via Google News; all terms used for pre-filter
+    const companyTerms: string[] = []
+    const allTerms = new Set<string>()
 
     for (const c of contactList) {
       if (c.company) {
         const key = c.company.toLowerCase().trim()
         if (!allTerms.has(key)) {
           allTerms.add(key)
-          companyTerms.push(key)
+          companyTerms.push(c.company.trim()) // keep original case for queries
         }
       }
       if (c.sector) {
         const key = c.sector.toLowerCase().trim()
-        if (key.length >= 3 && !allTerms.has(key)) {
-          allTerms.add(key)
-          secondaryTerms.push(key)
-        }
+        if (key.length >= 3) allTerms.add(key)
       }
     }
     for (const w of watchlist || []) {
@@ -193,72 +203,67 @@ async function runDailyBrief(request: NextRequest) {
         const key = company.toLowerCase()
         if (!allTerms.has(key)) {
           allTerms.add(key)
-          companyTerms.push(key)
+          companyTerms.push(company)
         }
       }
     }
     for (const t of tagRows || []) {
       const tag = (t.tag as string | null)?.trim()
-      if (tag && tag.length >= 3 && !allTerms.has(tag.toLowerCase())) {
-        allTerms.add(tag.toLowerCase())
-        secondaryTerms.push(tag.toLowerCase())
-      }
+      if (tag && tag.length >= 3) allTerms.add(tag.toLowerCase())
     }
 
-    // Google News search terms: all companies, then fill with secondary up to 50
-    const MAX_SEARCH_TERMS = 50
-    const searchTerms = [
-      ...companyTerms.slice(0, MAX_SEARCH_TERMS),
-      ...secondaryTerms.slice(0, Math.max(0, MAX_SEARCH_TERMS - companyTerms.length)),
-    ]
+    // Build OR-grouped Google News queries (5 companies per query)
+    const OR_GROUP_SIZE = 5
+    const googleQueries: string[] = []
+    for (let i = 0; i < companyTerms.length; i += OR_GROUP_SIZE) {
+      const group = companyTerms.slice(i, i + OR_GROUP_SIZE)
+      // Quote multi-word names, join with OR
+      const query = group
+        .map((t) => (t.includes(' ') ? `"${t}"` : t))
+        .join(' OR ')
+      googleQueries.push(query)
+    }
 
-    console.log(`[brief] Universe: ${allTerms.size} total terms, ${searchTerms.length} for Google News (${companyTerms.length} companies + ${Math.min(secondaryTerms.length, searchTerms.length - companyTerms.length)} secondary)`)
+    console.log(`[brief] Universe: ${allTerms.size} total terms, ${companyTerms.length} companies → ${googleQueries.length} OR-grouped Google queries`)
 
-    // ═══ STEP 2: Fetch all articles (parallel, with 10s timeout per source) ═══
+    // ═══ STEP 2: Fetch ALL sources in parallel ═══
     const t2 = Date.now()
 
-    // 2a. RSS from saved sources (already parallel via fetchFromCustomSources)
-    console.log(`[brief] Fetching ${(savedSources || []).length} RSS sources…`)
-    const rssItems: NewsItem[] = savedSources && savedSources.length > 0
-      ? await fetchFromCustomSources(
+    // Launch RSS + all Google News queries simultaneously
+    const rssPromise = savedSources && savedSources.length > 0
+      ? fetchFromCustomSources(
           savedSources.map((s) => ({ name: s.name as string, url: s.url as string })),
           10
         )
-      : []
-    console.log(`[brief] RSS done: ${rssItems.length} articles in ${Date.now() - t2}ms`)
+      : Promise.resolve([] as NewsItem[])
 
-    // 2b. Google News — fetch in parallel batches of 10 to avoid rate limiting
-    const t2b = Date.now()
-    console.log(`[brief] Fetching Google News for ${searchTerms.length} terms (parallel batches of 10)…`)
-    const GOOGLE_BATCH = 10
-    const googleResults: NewsItem[] = []
-    for (let i = 0; i < searchTerms.length; i += GOOGLE_BATCH) {
-      const batch = searchTerms.slice(i, i + GOOGLE_BATCH)
-      const results = await Promise.all(
-        batch.map((term) => fetchGoogleNews(term, 5))
-      )
-      for (const items of results) {
-        googleResults.push(...items)
-      }
-    }
-    console.log(`[brief] Google News done: ${googleResults.length} articles in ${Date.now() - t2b}ms`)
+    const googlePromises = googleQueries.map((q) => fetchGoogleNews(q, 10))
+
+    console.log(`[brief] Fetching ${(savedSources || []).length} RSS sources + ${googleQueries.length} Google queries in parallel…`)
+
+    const [rssItems, ...googleResultArrays] = await Promise.all([
+      rssPromise,
+      ...googlePromises,
+    ])
+
+    const googleResults = googleResultArrays.flat()
+
+    console.log(`[brief] Fetch done in ${Date.now() - t2}ms — RSS: ${rssItems.length}, Google: ${googleResults.length}`)
 
     const allRaw = [...rssItems, ...googleResults]
-    console.log(`[brief] Raw articles total: ${allRaw.length} in ${Date.now() - t2}ms`)
 
-    // 2c. Deduplicate
+    // Deduplicate
     const deduped = deduplicateArticles(allRaw)
-    console.log(`[brief] After dedup: ${deduped.length}`)
+    console.log(`[brief] After dedup: ${deduped.length} (from ${allRaw.length} raw)`)
 
     // ═══ STEP 3: Pre-filter ═══
     const preFiltered: (NewsItem & { signal_boost: number })[] = []
-    const universeLower = Array.from(allTerms) // full universe for substring matching
+    const universeLower = Array.from(allTerms)
 
     for (const article of deduped) {
       const titleLower = article.title.toLowerCase()
       const boost = computeSignalBoost(article.title)
 
-      // Must mention a universe term OR be broadly about healthcare
       const mentionsUniverse = universeLower.some(
         (term) => term.length >= 3 && titleLower.includes(term)
       )
@@ -276,15 +281,13 @@ async function runDailyBrief(request: NextRequest) {
     }
 
     // ═══ STEP 4: Skip articles already stored today ═══
-    const today = new Date()
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString()
-    const { data: todayRows } = await supabase
+    const { data: todayHeadlines } = await supabase
       .from('daily_briefs')
       .select('headline')
       .gte('created_at', startOfDay)
 
     const alreadyStored = new Set(
-      (todayRows || []).map((r) => (r.headline as string).toLowerCase().trim())
+      (todayHeadlines || []).map((r) => (r.headline as string).toLowerCase().trim())
     )
 
     const newArticles = preFiltered.filter(
@@ -297,13 +300,13 @@ async function runDailyBrief(request: NextRequest) {
 
     console.log(`[brief] New articles to score: ${newArticles.length}`)
 
-    // ═══ STEP 5: Claude scoring (batch articles to save API calls) ═══
+    // ═══ STEP 5: Claude scoring — parallel batches of 5 ═══
     const t5 = Date.now()
     const contactSummaries = contactList.map(
       (c) => `- ${c.name} (${c.role || '?'}) at ${c.company || '?'} [${c.status || '?'}] — sector: ${c.sector || '?'}`
     )
 
-    const scored = await scoreArticlesBatch(newArticles, contactSummaries, contactList)
+    const scored = await scoreArticlesParallel(newArticles, contactSummaries, contactList)
 
     console.log(`[brief] Claude scoring done: ${scored.length} articles in ${Date.now() - t5}ms`)
 
@@ -338,7 +341,6 @@ async function runDailyBrief(request: NextRequest) {
 
     const actionItems = buildActionItems(scored, contactList)
 
-    // Resolve contact names/companies for the email template
     const contactById = new Map(contactList.map((c) => [c.id, c]))
     const emailActions = actionItems.map((a) => {
       const c = a.contact_id ? contactById.get(a.contact_id) : null
@@ -353,7 +355,7 @@ async function runDailyBrief(request: NextRequest) {
     const emailResult = await sendDailyDigest(briefItems, emailActions, appUrl)
 
     const elapsed = Math.round((Date.now() - pipelineStart) / 1000)
-    console.log(`[brief] Pipeline complete in ${elapsed}s — ${briefItems.length} brief items, ${actionItems.length} action items, ${scored.length} total scored`)
+    console.log(`[brief] Pipeline complete in ${elapsed}s — ${briefItems.length} brief, ${actionItems.length} actions, ${scored.length} scored`)
 
     return NextResponse.json({
       success: true,
@@ -382,7 +384,6 @@ function buildActionItems(scored: ScoredArticle[], contacts: ContactRecord[]): S
     (a) => a.contact_match_score !== null && a.contact_match_score >= 7 && a.contact_id
   )
 
-  // Rank: relevance*2 + contact_match + status_boost
   const ranked = withMatch
     .map((a) => {
       const contact = a.contact_id ? contactMap.get(a.contact_id) : null
@@ -392,28 +393,25 @@ function buildActionItems(scored: ScoredArticle[], contacts: ContactRecord[]): S
     })
     .sort((a, b) => b.rank - a.rank)
 
-  // Hard rule: max 1 Cold contact, and only if contact_match_score >= 9
   const result: ScoredArticle[] = []
   let coldCount = 0
 
   for (const item of ranked) {
     if (result.length >= 5) break
-
     if (item.status === 'Cold') {
       if (coldCount >= 1) continue
       if ((item.article.contact_match_score ?? 0) < 9) continue
       coldCount++
     }
-
     result.push(item.article)
   }
 
   return result
 }
 
-// ── Claude scoring (batches of ~10 articles) ─────────────────────
+// ── Claude scoring — parallel batches of 5 articles ──────────────
 
-async function scoreArticlesBatch(
+async function scoreArticlesParallel(
   articles: (NewsItem & { signal_boost: number })[],
   contactSummaries: string[],
   contacts: ContactRecord[]
@@ -422,22 +420,28 @@ async function scoreArticlesBatch(
     ? contactSummaries.join('\n')
     : '(no contacts in CRM)'
 
-  // Process in batches of 10 to keep prompts manageable
-  const BATCH_SIZE = 10
-  const allScored: ScoredArticle[] = []
-  const totalBatches = Math.ceil(articles.length / BATCH_SIZE)
-
+  // Split into batches of 5
+  const BATCH_SIZE = 5
+  const batches: (NewsItem & { signal_boost: number })[][] = []
   for (let i = 0; i < articles.length; i += BATCH_SIZE) {
-    const batchNum = Math.floor(i / BATCH_SIZE) + 1
-    const batch = articles.slice(i, i + BATCH_SIZE)
-    console.log(`[brief] Claude batch ${batchNum}/${totalBatches} (${batch.length} articles)…`)
-    const t = Date.now()
-    const batchScored = await scoreBatch(batch, contactBlock, contacts)
-    console.log(`[brief] Claude batch ${batchNum} done in ${Date.now() - t}ms → ${batchScored.length} scored`)
-    allScored.push(...batchScored)
+    batches.push(articles.slice(i, i + BATCH_SIZE))
   }
 
-  return allScored
+  console.log(`[brief] Scoring ${articles.length} articles in ${batches.length} parallel batches of ≤${BATCH_SIZE}…`)
+
+  // Fire ALL batches in parallel
+  const t = Date.now()
+  const batchResults = await Promise.all(
+    batches.map((batch, idx) => {
+      console.log(`[brief] Claude batch ${idx + 1}/${batches.length} (${batch.length} articles) → launching`)
+      return scoreBatch(batch, contactBlock, contacts).then((results) => {
+        console.log(`[brief] Claude batch ${idx + 1} done in ${Date.now() - t}ms → ${results.length} scored`)
+        return results
+      })
+    })
+  )
+
+  return batchResults.flat()
 }
 
 async function scoreBatch(
@@ -539,7 +543,6 @@ Return ONLY valid JSON, no other text.`
     const parsed = JSON.parse(text.slice(first, last + 1))
     if (!Array.isArray(parsed)) return []
 
-    // Build name → contact ID map for lookups
     const nameToContact = new Map<string, ContactRecord>()
     for (const c of contacts) {
       nameToContact.set(c.name.toLowerCase().trim(), c)
@@ -557,7 +560,6 @@ Return ONLY valid JSON, no other text.`
           ? Math.min(10, Math.max(1, Math.round(Number(item.contact_match_score))))
           : null
 
-      // Resolve contact_name to contact_id
       let contactId: string | null = null
       if (matchScore !== null && matchScore >= 7 && typeof item.contact_name === 'string') {
         const matched = nameToContact.get(item.contact_name.toLowerCase().trim())
