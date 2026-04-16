@@ -42,16 +42,21 @@ create table tags (
   created_at timestamptz default now()
 );
 
--- 4. Daily briefs table
+-- 4. Daily briefs table (v2 — per-article rows with numeric scores)
 create table daily_briefs (
   id uuid default gen_random_uuid() primary key,
-  company text,
-  headline text,
+  headline text not null,
   source_url text,
-  ai_summary text,
-  relevance text check (relevance in ('High', 'Medium', 'Low')),
-  draft_email text,
+  source_name text,
+  pub_date text,
+  so_what text,
+  relevance_tag text,
+  relevance_score integer not null default 0,
+  contact_match_score integer,
   contact_id uuid references contacts(id) on delete set null,
+  contact_match_reason text,
+  draft_email text,
+  signal_boost integer not null default 0,
   status text default 'New' check (status in ('New', 'Sent', 'Dismissed')),
   created_at timestamptz default now()
 );

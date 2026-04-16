@@ -1,29 +1,36 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 
-interface ArticleItem {
-  headline: string
-  url: string
-  summary: string
-}
+/* ── Interfaces matching the new /api/briefs-today response ── */
 
-interface EmailOption {
-  label: string
-  full_email: string
-}
-
-interface CompanyBrief {
+interface BriefItem {
   id: string
-  company: string | null
-  contact_name: string | null
+  headline: string
+  source_url: string | null
+  source_name: string | null
+  pub_date: string | null
+  so_what: string | null
+  relevance_tag: string | null
+  relevance_score: number
+}
+
+interface ActionItem {
+  id: string
+  headline: string
+  source_url: string | null
+  source_name: string | null
+  so_what: string | null
+  relevance_score: number
+  contact_match_score: number
   contact_id: string | null
-  relevance: string | null
-  articles: ArticleItem[]
-  synthesis: string | null
-  email_options: EmailOption[]
-  created_at: string
+  contact_name: string | null
+  contact_company: string | null
+  contact_status: string | null
+  contact_match_reason: string | null
+  draft_email: string | null
+  status: string
 }
 
 interface FollowUpContact {
@@ -38,9 +45,11 @@ interface FollowUpContact {
 type Tab = 'brief' | 'actions'
 
 export default function HomePage() {
-  const [briefs, setBriefs] = useState<CompanyBrief[]>([])
+  const [briefItems, setBriefItems] = useState<BriefItem[]>([])
+  const [actionItems, setActionItems] = useState<ActionItem[]>([])
   const [upcoming, setUpcoming] = useState<FollowUpContact[]>([])
   const [overdue, setOverdue] = useState<FollowUpContact[]>([])
+  const [hasRun, setHasRun] = useState(false)
   const [loading, setLoading] = useState(true)
   const [runningBrief, setRunningBrief] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -56,7 +65,9 @@ export default function HomePage() {
     const briefsData = await briefsRes.json()
     const followUpsData = await followUpsRes.json()
 
-    setBriefs(Array.isArray(briefsData) ? briefsData : [])
+    setBriefItems(briefsData.brief || [])
+    setActionItems(briefsData.actions || [])
+    setHasRun(briefsData.has_run || false)
     setUpcoming(followUpsData.upcoming || [])
     setOverdue(followUpsData.overdue || [])
     setLoading(false)
@@ -88,88 +99,23 @@ export default function HomePage() {
     })
   }
 
-  const relevanceColor = (r: string | null) => {
-    if (r === 'High') return 'bg-red-100 text-red-700'
-    if (r === 'Medium') return 'bg-yellow-100 text-yellow-700'
+  async function updateStatus(id: string, newStatus: 'Sent' | 'Dismissed') {
+    await fetch(`/api/briefs-today/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    })
+    setActionItems((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)))
+  }
+
+  const statusColor = (s: string | null) => {
+    if (s === 'Active') return 'bg-green-100 text-green-800'
+    if (s === 'Warm') return 'bg-yellow-100 text-yellow-800'
+    if (s === 'Cold') return 'bg-blue-100 text-blue-800'
     return 'bg-gray-100 text-gray-600'
   }
 
-  // Build the action cards list: overdue first (most urgent), then upcoming,
-  // then high-relevance briefs that have a contact to reach out to.
-  const actionCards = useMemo(() => {
-    type ActionCard =
-      | {
-          kind: 'overdue'
-          id: string
-          contactId: string
-          name: string
-          company: string | null
-          days: number
-          lastDate: string | null
-        }
-      | {
-          kind: 'upcoming'
-          id: string
-          contactId: string
-          name: string
-          company: string | null
-          days: number
-          lastDate: string | null
-        }
-      | {
-          kind: 'outreach'
-          id: string
-          contactId: string | null
-          name: string
-          company: string | null
-          relevance: string
-          articleHeadline: string | null
-        }
-
-    const cards: ActionCard[] = []
-
-    for (const c of overdue) {
-      cards.push({
-        kind: 'overdue',
-        id: `overdue-${c.id}`,
-        contactId: c.id,
-        name: c.name,
-        company: c.company,
-        days: c.days_overdue ?? 0,
-        lastDate: c.last_contact_date,
-      })
-    }
-
-    for (const c of upcoming) {
-      cards.push({
-        kind: 'upcoming',
-        id: `upcoming-${c.id}`,
-        contactId: c.id,
-        name: c.name,
-        company: c.company,
-        days: c.days_until_due ?? 0,
-        lastDate: c.last_contact_date,
-      })
-    }
-
-    for (const b of briefs) {
-      if (b.relevance !== 'High') continue
-      if (!b.contact_name) continue // watchlist-only, no one to reach out to
-      cards.push({
-        kind: 'outreach',
-        id: `outreach-${b.id}`,
-        contactId: b.contact_id,
-        name: b.contact_name,
-        company: b.company,
-        relevance: b.relevance,
-        articleHeadline: b.articles[0]?.headline ?? null,
-      })
-    }
-
-    return cards
-  }, [overdue, upcoming, briefs])
-
-  const actionCount = actionCards.length
+  const totalActions = actionItems.length + overdue.length + upcoming.length
 
   return (
     <div className="p-8">
@@ -192,7 +138,7 @@ export default function HomePage() {
             disabled={runningBrief}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {runningBrief ? 'Running…' : 'Run Brief Now'}
+            {runningBrief ? 'Running…' : hasRun ? 'Refresh Brief' : 'Run Brief Now'}
           </button>
         </div>
 
@@ -207,9 +153,9 @@ export default function HomePage() {
             }`}
           >
             Daily Brief
-            {briefs.length > 0 && (
+            {briefItems.length > 0 && (
               <span className="ml-2 inline-block bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
-                {briefs.length}
+                {briefItems.length}
               </span>
             )}
           </button>
@@ -222,13 +168,13 @@ export default function HomePage() {
             }`}
           >
             Daily Actions
-            {actionCount > 0 && (
+            {totalActions > 0 && (
               <span
                 className={`ml-2 inline-block text-xs px-2 py-0.5 rounded-full ${
                   overdue.length > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
                 }`}
               >
-                {actionCount}
+                {totalActions}
               </span>
             )}
           </button>
@@ -237,113 +183,51 @@ export default function HomePage() {
         {loading ? (
           <p className="text-center text-gray-400 py-12">Loading…</p>
         ) : tab === 'brief' ? (
-          /* ============ DAILY BRIEF TAB ============ */
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            {briefs.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                No brief items yet today. Click &quot;Run Brief Now&quot; to generate.
-              </p>
+          /* ═══════ DAILY BRIEF TAB — pure news feed ═══════ */
+          <div>
+            {briefItems.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-10 text-center">
+                <p className="text-sm text-gray-500">
+                  {hasRun
+                    ? 'No articles scored 6+ relevance today.'
+                    : 'No brief yet today. Click "Run Brief Now" to generate.'}
+                </p>
+              </div>
             ) : (
-              <div className="space-y-5">
-                {briefs.map((item) => (
+              <div className="space-y-3">
+                {briefItems.map((item) => (
                   <div
                     key={item.id}
-                    className="border border-gray-200 rounded-lg p-5 hover:border-gray-300 transition-colors"
+                    className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:border-gray-300 transition-colors"
                   >
-                    <div className="flex items-center gap-2 mb-3">
-                      <h3 className="text-base font-semibold text-gray-900">{item.company}</h3>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${relevanceColor(item.relevance)}`}
-                      >
-                        {item.relevance}
-                      </span>
-                    </div>
-
-                    {item.contact_name && (
-                      <p className="text-xs text-gray-500 mb-3">
-                        {item.contact_name === '(watchlist)' ? (
-                          <span className="inline-block bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">
-                            Watchlist
-                          </span>
-                        ) : (
-                          <>
-                            Contact{item.contact_name.includes(',') ? 's' : ''}:{' '}
-                            {item.contact_id ? (
-                              <Link
-                                href={`/contacts/${item.contact_id}`}
-                                className="text-blue-600 hover:underline"
-                              >
-                                {item.contact_name}
-                              </Link>
-                            ) : (
-                              item.contact_name
-                            )}
-                          </>
-                        )}
-                      </p>
-                    )}
-
-                    {item.articles.length > 0 && (
-                      <div className="space-y-2 mb-3">
-                        {item.articles.map((article, i) => (
-                          <div key={i} className="bg-gray-50 rounded-lg p-3">
-                            <a
-                              href={article.url || '#'}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-blue-600 hover:underline"
-                            >
-                              {article.headline}
-                            </a>
-                            <p className="text-xs text-gray-600 mt-1">{article.summary}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {item.synthesis && (
-                      <div className="border-t border-gray-100 pt-3 mb-3">
-                        <p className="text-xs font-medium text-gray-500 mb-1">Synthesis</p>
-                        <p className="text-sm text-gray-700">{item.synthesis}</p>
-                      </div>
-                    )}
-
-                    {item.email_options.length > 0 && (
-                      <div className="border-t border-gray-100 pt-3">
-                        <button
-                          onClick={() => toggleEmail(item.id)}
-                          className="text-xs font-medium text-gray-500 hover:text-gray-700 mb-2 flex items-center gap-1"
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={item.source_url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-semibold text-blue-600 hover:underline leading-snug"
                         >
-                          {expandedEmails.has(item.id) ? '▼' : '▶'} Draft Emails (
-                          {item.email_options.length} option
-                          {item.email_options.length > 1 ? 's' : ''})
-                        </button>
-
-                        {expandedEmails.has(item.id) && (
-                          <div className="space-y-3">
-                            {item.email_options.map((option, i) => (
-                              <div key={i} className="bg-blue-50 rounded-lg p-4">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-xs font-semibold text-blue-800">
-                                    {option.label}
-                                  </span>
-                                  <button
-                                    onClick={() =>
-                                      copyText(`${item.id}-opt-${i}`, option.full_email)
-                                    }
-                                    className="text-xs bg-white border border-blue-200 px-3 py-1 rounded hover:bg-blue-50 text-blue-700 font-medium"
-                                  >
-                                    {copiedId === `${item.id}-opt-${i}` ? 'Copied!' : 'Copy'}
-                                  </button>
-                                </div>
-                                <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                                  {option.full_email}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                          {item.headline}
+                        </a>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
+                          {item.source_name && <span>{item.source_name}</span>}
+                          {item.pub_date && (
+                            <>
+                              <span>·</span>
+                              <span>{formatDate(item.pub_date)}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
+                      {item.relevance_tag && (
+                        <span className="flex-shrink-0 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-medium whitespace-nowrap">
+                          {item.relevance_tag}
+                        </span>
+                      )}
+                    </div>
+                    {item.so_what && (
+                      <p className="text-sm text-gray-700 mt-2">{item.so_what}</p>
                     )}
                   </div>
                 ))}
@@ -351,118 +235,204 @@ export default function HomePage() {
             )}
           </div>
         ) : (
-          /* ============ DAILY ACTIONS TAB ============ */
-          <div>
-            {actionCount === 0 ? (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-10 text-center">
-                <p className="text-sm text-gray-500">
-                  All caught up! No overdue follow-ups and no high-priority outreach queued.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {actionCards.map((card) => {
-                  if (card.kind === 'overdue') {
-                    return (
-                      <div
-                        key={card.id}
-                        className="bg-white rounded-lg shadow-sm border-l-4 border-l-red-500 border border-gray-200 p-5"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-red-700">
-                            Overdue
-                          </span>
-                          <span className="text-xs text-red-700 font-medium">
-                            {card.days} {card.days === 1 ? 'day' : 'days'}
-                          </span>
-                        </div>
-                        <h3 className="text-base font-semibold text-gray-900">{card.name}</h3>
-                        {card.company && (
-                          <p className="text-sm text-gray-500 mb-3">{card.company}</p>
-                        )}
-                        <p className="text-xs text-gray-500 mb-4">
-                          Last contact:{' '}
-                          {card.lastDate ? new Date(card.lastDate).toLocaleDateString() : '—'}
-                        </p>
-                        <Link
-                          href={`/contacts/${card.contactId}`}
-                          className="inline-block text-sm font-medium text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          Reach out →
-                        </Link>
-                      </div>
-                    )
-                  }
-                  if (card.kind === 'upcoming') {
-                    return (
-                      <div
-                        key={card.id}
-                        className="bg-white rounded-lg shadow-sm border-l-4 border-l-yellow-500 border border-gray-200 p-5"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-yellow-700">
-                            Follow-up due
-                          </span>
-                          <span className="text-xs text-yellow-700 font-medium">
-                            {card.days === 0 ? 'Today' : `in ${card.days}d`}
-                          </span>
-                        </div>
-                        <h3 className="text-base font-semibold text-gray-900">{card.name}</h3>
-                        {card.company && (
-                          <p className="text-sm text-gray-500 mb-3">{card.company}</p>
-                        )}
-                        <p className="text-xs text-gray-500 mb-4">
-                          Last contact:{' '}
-                          {card.lastDate ? new Date(card.lastDate).toLocaleDateString() : '—'}
-                        </p>
-                        <Link
-                          href={`/contacts/${card.contactId}`}
-                          className="inline-block text-sm font-medium text-yellow-800 bg-yellow-100 hover:bg-yellow-200 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          Open contact →
-                        </Link>
-                      </div>
-                    )
-                  }
-                  // outreach
-                  return (
+          /* ═══════ DAILY ACTIONS TAB — outreach cards + follow-ups ═══════ */
+          <div className="space-y-6">
+            {/* News-based outreach cards */}
+            {actionItems.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Outreach opportunities
+                </h3>
+                <div className="space-y-4">
+                  {actionItems.map((item) => (
                     <div
-                      key={card.id}
-                      className="bg-white rounded-lg shadow-sm border-l-4 border-l-blue-500 border border-gray-200 p-5"
+                      key={item.id}
+                      className={`bg-white rounded-lg shadow-sm border-l-4 border border-gray-200 p-5 ${
+                        item.status === 'Sent'
+                          ? 'border-l-green-400 opacity-60'
+                          : item.status === 'Dismissed'
+                            ? 'border-l-gray-300 opacity-40'
+                            : 'border-l-blue-500'
+                      }`}
                     >
+                      {/* Contact header */}
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                          High-relevance news
+                        {item.contact_id ? (
+                          <Link
+                            href={`/contacts/${item.contact_id}`}
+                            className="text-base font-semibold text-gray-900 hover:text-blue-600"
+                          >
+                            {item.contact_name}
+                          </Link>
+                        ) : (
+                          <span className="text-base font-semibold text-gray-900">
+                            {item.contact_name}
+                          </span>
+                        )}
+                        {item.contact_company && (
+                          <span className="text-sm text-gray-500">at {item.contact_company}</span>
+                        )}
+                        {item.contact_status && (
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded font-medium ${statusColor(item.contact_status)}`}
+                          >
+                            {item.contact_status}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Match reason */}
+                      {item.contact_match_reason && (
+                        <p className="text-sm text-gray-700 mb-3">{item.contact_match_reason}</p>
+                      )}
+
+                      {/* Article */}
+                      <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                        <a
+                          href={item.source_url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:underline"
+                        >
+                          {item.headline}
+                        </a>
+                        {item.so_what && (
+                          <p className="text-xs text-gray-600 mt-1">{item.so_what}</p>
+                        )}
+                      </div>
+
+                      {/* Draft email (collapsible) */}
+                      {item.draft_email && item.status === 'New' && (
+                        <div className="mb-3">
+                          <button
+                            onClick={() => toggleEmail(item.id)}
+                            className="text-xs font-medium text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                          >
+                            {expandedEmails.has(item.id) ? '▼' : '▶'} Draft email
+                          </button>
+                          {expandedEmails.has(item.id) && (
+                            <div className="bg-blue-50 rounded-lg p-4 mt-2">
+                              <div className="flex justify-end mb-2">
+                                <button
+                                  onClick={() => copyText(item.id, item.draft_email!)}
+                                  className="text-xs bg-white border border-blue-200 px-3 py-1 rounded hover:bg-blue-50 text-blue-700 font-medium"
+                                >
+                                  {copiedId === item.id ? 'Copied!' : 'Copy'}
+                                </button>
+                              </div>
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                {item.draft_email}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      {item.status === 'New' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => updateStatus(item.id, 'Sent')}
+                            className="text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            Mark as sent
+                          </button>
+                          <button
+                            onClick={() => updateStatus(item.id, 'Dismissed')}
+                            className="text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      )}
+                      {item.status === 'Sent' && (
+                        <span className="text-xs text-green-600 font-medium">Sent</span>
+                      )}
+                      {item.status === 'Dismissed' && (
+                        <span className="text-xs text-gray-400 font-medium">Dismissed</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Overdue follow-ups */}
+            {overdue.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Overdue connections
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {overdue.map((c) => (
+                    <div
+                      key={c.id}
+                      className="bg-white rounded-lg shadow-sm border-l-4 border-l-red-500 border border-gray-200 p-4"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold text-red-700">
+                          {c.days_overdue}d overdue
                         </span>
                       </div>
-                      <h3 className="text-base font-semibold text-gray-900">{card.name}</h3>
-                      {card.company && (
-                        <p className="text-sm text-gray-500 mb-2">{card.company}</p>
+                      <Link
+                        href={`/contacts/${c.id}`}
+                        className="text-sm font-semibold text-gray-900 hover:text-blue-600"
+                      >
+                        {c.name}
+                      </Link>
+                      {c.company && (
+                        <p className="text-xs text-gray-500">{c.company}</p>
                       )}
-                      {card.articleHeadline && (
-                        <p className="text-xs text-gray-700 mb-4 line-clamp-2">
-                          {card.articleHeadline}
-                        </p>
-                      )}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setTab('brief')}
-                          className="text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                          View brief →
-                        </button>
-                        {card.contactId && (
-                          <Link
-                            href={`/contacts/${card.contactId}`}
-                            className="text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors"
-                          >
-                            Contact
-                          </Link>
-                        )}
-                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Last: {c.last_contact_date ? new Date(c.last_contact_date).toLocaleDateString() : '—'}
+                      </p>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Upcoming follow-ups */}
+            {upcoming.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">
+                  Follow-ups due this week
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {upcoming.map((c) => (
+                    <div
+                      key={c.id}
+                      className="bg-white rounded-lg shadow-sm border-l-4 border-l-yellow-500 border border-gray-200 p-4"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold text-yellow-700">
+                          {c.days_until_due === 0 ? 'Due today' : `Due in ${c.days_until_due}d`}
+                        </span>
+                      </div>
+                      <Link
+                        href={`/contacts/${c.id}`}
+                        className="text-sm font-semibold text-gray-900 hover:text-blue-600"
+                      >
+                        {c.name}
+                      </Link>
+                      {c.company && (
+                        <p className="text-xs text-gray-500">{c.company}</p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">
+                        Last: {c.last_contact_date ? new Date(c.last_contact_date).toLocaleDateString() : '—'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* All clear state */}
+            {totalActions === 0 && (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-10 text-center">
+                <p className="text-sm text-gray-500">
+                  All caught up! No outreach opportunities, overdue follow-ups, or upcoming reminders.
+                </p>
               </div>
             )}
           </div>
@@ -470,4 +440,14 @@ export default function HomePage() {
       </div>
     </div>
   )
+}
+
+function formatDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  } catch {
+    return dateStr
+  }
 }

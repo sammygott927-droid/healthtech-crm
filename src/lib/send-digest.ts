@@ -1,41 +1,37 @@
 import { Resend } from 'resend'
 
-interface ArticleItem {
+/* ── Interfaces matching the v2 pipeline output ── */
+
+export interface BriefDigestItem {
   headline: string
-  url: string
-  summary: string
+  source_url: string
+  source_name: string
+  so_what: string
+  relevance_score: number
 }
 
-interface EmailOption {
-  label: string
-  full_email: string
-}
-
-interface CompanyDigestItem {
-  company: string
-  contact_name: string
-  articles: ArticleItem[]
-  synthesis: string
-  relevance: string
-  email_options: EmailOption[]
-}
-
-interface FollowUpContact {
-  name: string
-  company: string | null
-  days_until_due?: number
-  days_overdue?: number
-  last_contact_date: string | null
+export interface ActionDigestItem {
+  headline: string
+  source_url: string
+  contact_id: string | null
+  contact_match_reason: string | null
+  // Resolved at call-site or from the pipeline
+  contact_name?: string
+  contact_company?: string
 }
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY)
 }
 
+/**
+ * Send the daily email digest with two sections:
+ *   1. Today's Intelligence — one bullet per Daily Brief item
+ *   2. Today's Actions — one line per outreach opportunity
+ */
 export async function sendDailyDigest(
-  items: CompanyDigestItem[],
-  upcoming: FollowUpContact[],
-  overdue: FollowUpContact[],
+  briefItems: BriefDigestItem[],
+  actionItems: ActionDigestItem[],
   appUrl: string
 ) {
   const userEmail = process.env.USER_EMAIL
@@ -51,9 +47,9 @@ export async function sendDailyDigest(
     day: 'numeric',
   })
 
-  const subject = `Your Daily Brief — ${today} — ${items.length} companies`
+  const subject = `Daily Brief — ${today} — ${briefItems.length} stories`
 
-  const html = buildEmailHtml(items, upcoming, overdue, today, appUrl)
+  const html = buildEmailHtml(briefItems, actionItems, today, appUrl)
 
   const resend = getResend()
   const { data, error } = await resend.emails.send({
@@ -72,78 +68,52 @@ export async function sendDailyDigest(
 }
 
 function buildEmailHtml(
-  items: CompanyDigestItem[],
-  upcoming: FollowUpContact[],
-  overdue: FollowUpContact[],
+  briefItems: BriefDigestItem[],
+  actionItems: ActionDigestItem[],
   dateStr: string,
   appUrl: string
 ): string {
-  const relevanceColor = (r: string) => {
-    if (r === 'High') return '#dc2626'
-    if (r === 'Medium') return '#d97706'
-    return '#6b7280'
-  }
+  // ── Section 1: Today's Intelligence ──
+  const intelligenceHtml =
+    briefItems.length === 0
+      ? '<p style="color: #9ca3af; font-size: 14px;">No high-relevance stories today.</p>'
+      : '<ul style="padding-left: 18px; margin: 0;">' +
+        briefItems
+          .map(
+            (item) => `
+          <li style="margin-bottom: 10px; font-size: 14px; line-height: 1.5; color: #374151;">
+            <a href="${esc(item.source_url)}" style="font-weight: 600; color: #2563eb; text-decoration: none;">${esc(item.headline)}</a>
+            <span style="color: #6b7280; font-size: 12px;"> — ${esc(item.source_name)}</span>
+            <br/>
+            <span style="font-size: 13px; color: #4b5563;">${esc(item.so_what)}</span>
+          </li>`
+          )
+          .join('') +
+        '</ul>'
 
-  const companyCardsHtml = items.length === 0
-    ? '<p style="color: #9ca3af; font-size: 14px;">No news items today.</p>'
-    : items.map((item) => {
-      const articlesHtml = item.articles.map((a) => `
-        <div style="background: #f9fafb; border-radius: 6px; padding: 10px; margin-bottom: 6px;">
-          <a href="${escapeHtml(a.url)}" style="font-size: 13px; font-weight: 600; color: #2563eb; text-decoration: none;">${escapeHtml(a.headline)}</a>
-          <p style="font-size: 12px; color: #4b5563; margin: 4px 0 0 0;">${escapeHtml(a.summary)}</p>
-        </div>
-      `).join('')
+  // ── Section 2: Today's Actions ──
+  const actionsHtml =
+    actionItems.length === 0
+      ? '<p style="color: #9ca3af; font-size: 14px;">No outreach actions today.</p>'
+      : '<ul style="padding-left: 18px; margin: 0;">' +
+        actionItems
+          .map((item) => {
+            const contactLabel = item.contact_name
+              ? `${esc(item.contact_name)}${item.contact_company ? ` at ${esc(item.contact_company)}` : ''}`
+              : '(unknown contact)'
+            const reason = item.contact_match_reason
+              ? esc(item.contact_match_reason)
+              : `re: ${esc(item.headline)}`
 
-      const optionsHtml = item.email_options.map((opt) => `
-        <div style="background: #eff6ff; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
-          <p style="font-size: 11px; font-weight: 700; color: #1e40af; margin: 0 0 6px 0;">${escapeHtml(opt.label)}</p>
-          <p style="font-size: 13px; color: #374151; margin: 0; white-space: pre-wrap;">${escapeHtml(opt.full_email)}</p>
-        </div>
-      `).join('')
-
-      return `
-        <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
-          <div style="margin-bottom: 8px;">
-            <span style="font-size: 15px; font-weight: 700; color: #111827;">${escapeHtml(item.company)}</span>
-            <span style="font-size: 11px; background: ${relevanceColor(item.relevance)}15; color: ${relevanceColor(item.relevance)}; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">${item.relevance}</span>
-          </div>
-          <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px 0;">Contact: ${escapeHtml(item.contact_name)}</p>
-          ${articlesHtml}
-          <div style="border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 10px;">
-            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 4px 0;">SYNTHESIS</p>
-            <p style="font-size: 13px; color: #374151; margin: 0;">${escapeHtml(item.synthesis)}</p>
-          </div>
-          <div style="border-top: 1px solid #e5e7eb; padding-top: 10px; margin-top: 10px;">
-            <p style="font-size: 11px; font-weight: 600; color: #6b7280; margin: 0 0 6px 0;">DRAFT EMAIL OPTIONS</p>
-            ${optionsHtml}
-          </div>
-        </div>
-      `
-    }).join('')
-
-  const upcomingHtml = upcoming.length === 0
-    ? '<p style="color: #9ca3af; font-size: 14px;">No follow-ups due in the next 7 days.</p>'
-    : '<table style="width: 100%; font-size: 13px; border-collapse: collapse;">' +
-      upcoming.map((c) => `
-        <tr style="border-bottom: 1px solid #f3f4f6;">
-          <td style="padding: 8px 0; font-weight: 500; color: #111827;">${escapeHtml(c.name)}</td>
-          <td style="padding: 8px 0; color: #6b7280;">${escapeHtml(c.company || '')}</td>
-          <td style="padding: 8px 0; text-align: right; color: #d97706; font-weight: 500;">${c.days_until_due === 0 ? 'Due today' : `Due in ${c.days_until_due} days`}</td>
-        </tr>
-      `).join('') +
-      '</table>'
-
-  const overdueHtml = overdue.length === 0
-    ? '<p style="color: #9ca3af; font-size: 14px;">All caught up!</p>'
-    : '<table style="width: 100%; font-size: 13px; border-collapse: collapse;">' +
-      overdue.map((c) => `
-        <tr style="border-bottom: 1px solid #f3f4f6;">
-          <td style="padding: 8px 0; font-weight: 500; color: #111827;">${escapeHtml(c.name)}</td>
-          <td style="padding: 8px 0; color: #6b7280;">${escapeHtml(c.company || '')}</td>
-          <td style="padding: 8px 0; text-align: right; color: #dc2626; font-weight: 500;">${c.days_overdue} days overdue</td>
-        </tr>
-      `).join('') +
-      '</table>'
+            return `
+          <li style="margin-bottom: 10px; font-size: 14px; line-height: 1.5; color: #374151;">
+            <strong>Reach out to ${contactLabel}</strong> — ${reason}
+            <br/>
+            <a href="${appUrl}?tab=actions" style="font-size: 12px; color: #2563eb; text-decoration: none;">View in Daily Actions →</a>
+          </li>`
+          })
+          .join('') +
+        '</ul>'
 
   return `
 <!DOCTYPE html>
@@ -154,14 +124,11 @@ function buildEmailHtml(
     <h1 style="font-size: 20px; color: #111827; margin: 0 0 4px 0;">Your Daily Brief</h1>
     <p style="font-size: 13px; color: #9ca3af; margin: 0 0 24px 0;">${dateStr}</p>
 
-    <h2 style="font-size: 16px; color: #111827; margin: 0 0 12px 0;">Top Companies</h2>
-    ${companyCardsHtml}
+    <h2 style="font-size: 16px; color: #111827; margin: 0 0 12px 0; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px;">Today's Intelligence</h2>
+    ${intelligenceHtml}
 
-    <h2 style="font-size: 16px; color: #111827; margin: 24px 0 12px 0;">Follow-Up Reminders</h2>
-    ${upcomingHtml}
-
-    <h2 style="font-size: 16px; color: #111827; margin: 24px 0 12px 0;">Overdue Connections</h2>
-    ${overdueHtml}
+    <h2 style="font-size: 16px; color: #111827; margin: 24px 0 12px 0; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px;">Today's Actions</h2>
+    ${actionsHtml}
 
     <div style="margin-top: 24px; text-align: center;">
       <a href="${appUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 500;">View Dashboard</a>
@@ -171,7 +138,7 @@ function buildEmailHtml(
 </html>`
 }
 
-function escapeHtml(str: string): string {
+function esc(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
