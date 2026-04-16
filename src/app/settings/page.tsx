@@ -152,14 +152,17 @@ export default function SettingsPage() {
   }
 
   async function handleRestructureAll() {
-    if (!confirm('Rebuild the structured notes view for all contacts that have notes? This reads each contact\'s notes and regenerates the 6-category view + 1-2 sentence summary. May take a few minutes.')) return
+    if (!confirm('Re-process EVERY note through Claude to regenerate ai_summary + the 6-category structured view? Useful after the notes-redesign migration when ai_summary was backfilled with the old short summary text. May take a few minutes.')) return
     setRestructuring(true)
-    setRestructureResult('')
+    setRestructureResult('Starting...')
     try {
-      const res = await fetch('/api/restructure-notes-all', { method: 'POST' })
+      const res = await fetch('/api/restructure-notes-all?force=1', { method: 'POST' })
       const { ok, data, rawText } = await safeParse(res)
       if (ok) {
-        setRestructureResult(`Restructured ${data.processed} of ${data.contacts_with_notes} contacts with notes.${Number(data.errors) > 0 ? ` ${data.errors} errors.` : ''}`)
+        setRestructureResult(
+          `Restructured ${data.processed} of ${data.total} notes.` +
+            (Number(data.errors) > 0 ? ` ${data.errors} errors.` : '')
+        )
       } else {
         setRestructureResult(`Error: ${(data.error as string) || rawText?.slice(0, 200) || 'Unknown error'}`)
       }
@@ -440,7 +443,13 @@ export default function SettingsPage() {
           <div className="mt-6 pt-6 border-t border-gray-200">
             <h3 className="text-sm font-medium text-gray-700 mb-1">Restructure all notes</h3>
             <p className="text-xs text-gray-500 mb-3">
-              Rebuilds the 6-category structured view (How we met, Areas of interest, Advice given, Key takeaways, Next steps, Miscellaneous) plus a 1-2 sentence summary for every contact with notes. Raw notes are untouched.
+              Re-runs Claude on every note that has raw content, regenerating
+              both the 1-2 sentence AI summary and the 6-category structured
+              view (How we met, Areas of interest, Advice given, Key takeaways,
+              Next steps, Miscellaneous). Use this after the notes-redesign
+              migration to replace any backfilled <code className="bg-gray-100 px-1 rounded text-[11px]">ai_summary</code> text
+              (e.g. pipe-delimited import snippets) with proper AI-written
+              summaries. Raw notes are untouched.
             </p>
             <button
               onClick={handleRestructureAll}

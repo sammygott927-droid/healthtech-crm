@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { structureSingleNote } from '@/lib/structure-notes'
 
@@ -6,19 +6,35 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 /**
- * Backfill per-note AI summary + structured categories for every note that
- * is missing them. This is the maintenance counterpart to the new per-note
- * pipeline introduced in the notes redesign (Task 1).
+ * Re-runs per-note AI structuring across notes.
+ *
+ * Modes:
+ *   - default (no params): only notes where ai_summary IS NULL
+ *   - force=true: every note that has raw content, regardless of existing
+ *     ai_summary. Used to recover from a backfill that copied the old
+ *     `summary` field into `ai_summary` (e.g. pipe-delimited import text).
+ *
+ * POST /api/restructure-notes-all          → only missing notes
+ * POST /api/restructure-notes-all?force=1  → every note with raw content
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    // Find notes that have raw content but no AI summary yet
-    const { data: notes, error } = await supabase
+    const url = new URL(request.url)
+    const force =
+      url.searchParams.get('force') === '1' ||
+      url.searchParams.get('force') === 'true'
+
+    let query = supabase
       .from('notes')
       .select(
         'id, contact_id, raw_notes, summary, full_notes, ai_summary, contacts(name, role, company, sector)'
       )
-      .is('ai_summary', null)
+
+    if (!force) {
+      query = query.is('ai_summary', null)
+    }
+
+    const { data: notes, error } = await query
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
@@ -26,7 +42,10 @@ export async function POST() {
 
     if (!notes || notes.length === 0) {
       return NextResponse.json({
-        message: 'No notes need structuring',
+        message: force
+          ? 'No notes found at all'
+          : 'No notes need structuring',
+        total: 0,
         processed: 0,
       })
     }
@@ -34,41 +53,48 @@ export async function POST() {
     const results: { id: string }[] = []
     const errors: { id: string; error: string }[] = []
 
-    for (const note of notes) {
-      const rawText =
-        note.raw_notes ||
-        [note.summary, note.full_notes].filter(Boolean).join('\n\n')
+    // Run notes in parallel batches of 5 to keep total time bounded
+    const BATCH = 5
+    for (let i = 0; i < notes.length; i += BATCH) {
+      const slice = notes.slice(i, i + BATCH)
+      await Promise.all(
+        slice.map(async (note) => {
+          const rawText =
+            note.raw_notes ||
+            [note.summary, note.full_notes].filter(Boolean).join('\n\n')
 
-      if (!rawText.trim()) continue
+          if (!rawText.trim()) return
 
-      // contacts is a single object when joined via foreign key — typed loose
-      // here because Supabase types it as a relation array.
-      const contact = Array.isArray(note.contacts)
-        ? note.contacts[0]
-        : note.contacts
+          // Supabase types `contacts` as a relation that may be array or single
+          const contact = Array.isArray(note.contacts)
+            ? note.contacts[0]
+            : note.contacts
 
-      if (!contact) continue
+          if (!contact) return
 
-      try {
-        await structureSingleNote(
-          note.id,
-          {
-            name: contact.name,
-            role: contact.role,
-            company: contact.company,
-            sector: contact.sector,
-          },
-          rawText
-        )
-        results.push({ id: note.id })
-      } catch (err) {
-        errors.push({ id: note.id, error: String(err) })
-      }
+          try {
+            await structureSingleNote(
+              note.id,
+              {
+                name: contact.name,
+                role: contact.role,
+                company: contact.company,
+                sector: contact.sector,
+              },
+              rawText
+            )
+            results.push({ id: note.id })
+          } catch (err) {
+            errors.push({ id: note.id, error: String(err) })
+          }
+        })
+      )
     }
 
     return NextResponse.json({
       success: true,
-      total_notes_needing_backfill: notes.length,
+      mode: force ? 'force' : 'missing-only',
+      total: notes.length,
       processed: results.length,
       errors: errors.length,
       error_details: errors,
