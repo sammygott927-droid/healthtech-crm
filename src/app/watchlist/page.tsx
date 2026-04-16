@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Toast, { type ToastVariant } from '@/components/Toast'
 
 interface WatchlistEntry {
   id: string
@@ -29,6 +30,10 @@ export default function WatchlistPage() {
   const [syncing, setSyncing] = useState(false)
   const [extracting, setExtracting] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
+
+  // Per-row Re-infer state (set of row ids currently re-inferring)
+  const [reinferringIds, setReinferringIds] = useState<Set<string>>(new Set())
+  const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,6 +91,48 @@ export default function WatchlistPage() {
       setNewReason('')
     } finally {
       setAdding(false)
+    }
+  }
+
+  async function reinferSector(id: string, company: string) {
+    if (reinferringIds.has(id)) return
+    setReinferringIds((prev) => new Set(prev).add(id))
+    try {
+      const res = await fetch(`/api/watchlist/${id}/reinfer-sector`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setToast({
+          message: data.error || `Failed for ${company} (${res.status})`,
+          variant: 'error',
+        })
+        return
+      }
+      if (data.updated) {
+        setToast({
+          message: `Sector updated to: ${data.sector}`,
+          variant: 'success',
+        })
+        // Update the local row in place so the new sector shows immediately
+        setEntries((prev) =>
+          prev.map((row) => (row.id === id ? { ...row, sector: data.sector } : row))
+        )
+      } else {
+        setToast({
+          message: data.message || `Could not determine a sector for ${company}`,
+          variant: 'info',
+        })
+      }
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : `Re-infer failed for ${company}`,
+        variant: 'error',
+      })
+    } finally {
+      setReinferringIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -273,10 +320,50 @@ export default function WatchlistPage() {
                   </td>
                 </tr>
               ) : (
-                entries.map((e) => (
+                entries.map((e) => {
+                  const isReinferring = reinferringIds.has(e.id)
+                  return (
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{e.company}</td>
-                    <td className="px-4 py-3 text-gray-700">{e.sector || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{e.sector || '—'}</span>
+                        <button
+                          onClick={() => reinferSector(e.id, e.company)}
+                          disabled={isReinferring}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1.5 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          title="Re-infer sector using web search"
+                        >
+                          {isReinferring ? (
+                            <>
+                              <svg
+                                className="animate-spin h-3 w-3"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
+                              </svg>
+                              Re-inferring…
+                            </>
+                          ) : (
+                            'Re-infer'
+                          )}
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{e.reason || '—'}</td>
                     <td className="px-4 py-3">
                       {e.auto_added ? (
@@ -301,12 +388,22 @@ export default function WatchlistPage() {
                       </button>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Toast notifications (Task 4) */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          variant={toast.variant}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }
