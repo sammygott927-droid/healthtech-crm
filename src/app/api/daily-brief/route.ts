@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { fetchGoogleNews, fetchFromCustomSources, NewsItem } from '@/lib/news-fetcher'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendDailyDigest } from '@/lib/send-digest'
+import { dedupeActionsByContact } from '@/lib/dedupe-actions'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -375,6 +376,12 @@ async function runDailyBrief(request: NextRequest) {
 }
 
 // ── Build top 5 action items ─────────────────────────────────────
+//
+// Two-step pipeline (Task 7):
+//   1. Dedupe by contact_id — each contact appears at most once. If
+//      multiple scored articles match the same contact at score >= 7,
+//      keep the single highest-ranked one.
+//   2. Apply top-5 cap + Cold rule (max 1 Cold, only if match >= 9).
 
 function buildActionItems(scored: ScoredArticle[], contacts: ContactRecord[]): ScoredArticle[] {
   const contactMap = new Map<string, ContactRecord>()
@@ -384,26 +391,31 @@ function buildActionItems(scored: ScoredArticle[], contacts: ContactRecord[]): S
     (a) => a.contact_match_score !== null && a.contact_match_score >= 7 && a.contact_id
   )
 
-  const ranked = withMatch
-    .map((a) => {
+  const dedupedCandidates = dedupeActionsByContact(
+    withMatch.map((a) => {
       const contact = a.contact_id ? contactMap.get(a.contact_id) : null
-      const statusBoost = contact?.status === 'Active' ? 3 : contact?.status === 'Warm' ? 2 : 0
-      const rank = a.relevance_score * 2 + (a.contact_match_score ?? 0) + statusBoost
-      return { article: a, rank, status: contact?.status ?? null }
+      return {
+        item: a,
+        contact_id: a.contact_id as string,
+        relevance_score: a.relevance_score,
+        contact_match_score: a.contact_match_score ?? 0,
+        status: contact?.status ?? null,
+      }
     })
-    .sort((a, b) => b.rank - a.rank)
+  )
 
   const result: ScoredArticle[] = []
   let coldCount = 0
 
-  for (const item of ranked) {
+  for (const candidate of dedupedCandidates) {
     if (result.length >= 5) break
-    if (item.status === 'Cold') {
+    const article = candidate.item
+    if (candidate.status === 'Cold') {
       if (coldCount >= 1) continue
-      if ((item.article.contact_match_score ?? 0) < 9) continue
+      if ((article.contact_match_score ?? 0) < 9) continue
       coldCount++
     }
-    result.push(item.article)
+    result.push(article)
   }
 
   return result

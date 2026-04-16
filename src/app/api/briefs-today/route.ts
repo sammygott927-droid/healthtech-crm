@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { dedupeActionsByContact } from '@/lib/dedupe-actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,7 +9,8 @@ export const dynamic = 'force-dynamic'
  *
  * Returns two arrays from today's daily_briefs rows:
  *   brief:   all articles with relevance_score >= 6, ranked desc (news feed)
- *   actions: top 5 contact-matched articles, ranked by composite score
+ *   actions: top 5 contact-matched articles, ranked by composite score,
+ *            with at most ONE card per contact (Task 7 dedup)
  *
  * Also returns `has_run` so the UI knows whether to show "Run Brief Now".
  */
@@ -43,14 +45,16 @@ export async function GET() {
     }))
 
   // Actions tab: contact_match_score >= 7, resolve contact name via join
-  // We need contact names for the action cards. Fetch matched contacts.
   const actionCandidates = rows.filter(
-    (r) => r.contact_match_score !== null && (r.contact_match_score as number) >= 7 && r.contact_id
+    (r) =>
+      r.contact_match_score !== null &&
+      (r.contact_match_score as number) >= 7 &&
+      r.contact_id
   )
 
   // Fetch contact info for matched contacts
   const contactIds = [...new Set(actionCandidates.map((r) => r.contact_id as string))]
-  let contactMap: Record<string, { name: string; company: string | null; status: string | null }> = {}
+  const contactMap: Record<string, { name: string; company: string | null; status: string | null }> = {}
 
   if (contactIds.length > 0) {
     const { data: contactRows } = await supabase
@@ -67,30 +71,37 @@ export async function GET() {
     }
   }
 
-  // Rank: relevance*2 + contact_match + status_boost
-  const ranked = actionCandidates
-    .map((r) => {
+  // ─── Task 7: deduplicate by contact ───
+  // Multiple stored articles can match the same contact with score >= 7.
+  // Keep only the highest-ranked card per contact so each contact appears
+  // at most once in the Actions tab today.
+  type Row = (typeof actionCandidates)[number]
+  const dedupedCandidates = dedupeActionsByContact(
+    actionCandidates.map((r) => {
       const contact = contactMap[r.contact_id as string]
-      const statusBoost = contact?.status === 'Active' ? 3 : contact?.status === 'Warm' ? 2 : 0
-      const rank =
-        (r.relevance_score as number) * 2 +
-        (r.contact_match_score as number) +
-        statusBoost
-      return { row: r, contact, rank, status: contact?.status ?? null }
+      return {
+        item: r as Row,
+        contact_id: r.contact_id as string,
+        relevance_score: r.relevance_score as number,
+        contact_match_score: r.contact_match_score as number,
+        status: contact?.status ?? null,
+      }
     })
-    .sort((a, b) => b.rank - a.rank)
+  )
 
-  // Max 1 Cold, only if match >= 9
-  const actions: typeof ranked = []
+  // Apply Cold cap (max 1 Cold, only if score >= 9) on top of the dedupe.
+  const actions: { row: Row; contact: typeof contactMap[string] | undefined }[] = []
   let coldCount = 0
-  for (const item of ranked) {
+  for (const candidate of dedupedCandidates) {
     if (actions.length >= 5) break
-    if (item.status === 'Cold') {
+    const row = candidate.item
+    const contact = contactMap[row.contact_id as string]
+    if (contact?.status === 'Cold') {
       if (coldCount >= 1) continue
-      if ((item.row.contact_match_score as number) < 9) continue
+      if ((row.contact_match_score as number) < 9) continue
       coldCount++
     }
-    actions.push(item)
+    actions.push({ row, contact })
   }
 
   const actionItems = actions.map(({ row, contact }) => ({
