@@ -3,21 +3,47 @@
 import { useCallback, useEffect, useState } from 'react'
 import Toast, { type ToastVariant } from '@/components/Toast'
 
+const WATCHLIST_TYPES = [
+  'Fund',
+  'Startup',
+  'Growth Stage',
+  'Incubator',
+  'Health System',
+  'Payer',
+  'Consulting',
+  'Other',
+] as const
+
+type WatchlistType = (typeof WATCHLIST_TYPES)[number]
+
 interface WatchlistEntry {
   id: string
   company: string
+  type: WatchlistType | null
   sector: string | null
   reason: string | null
   auto_added: boolean
   created_at: string
 }
 
+const TYPE_BADGE: Record<WatchlistType, string> = {
+  Fund: 'bg-emerald-100 text-emerald-800',
+  Startup: 'bg-sky-100 text-sky-800',
+  'Growth Stage': 'bg-indigo-100 text-indigo-800',
+  Incubator: 'bg-amber-100 text-amber-800',
+  'Health System': 'bg-rose-100 text-rose-800',
+  Payer: 'bg-violet-100 text-violet-800',
+  Consulting: 'bg-orange-100 text-orange-800',
+  Other: 'bg-gray-100 text-gray-700',
+}
+
 export default function WatchlistPage() {
   const [entries, setEntries] = useState<WatchlistEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<'company' | 'sector' | 'created_at'>('company')
+  const [sortBy, setSortBy] = useState<'company' | 'type' | 'sector' | 'created_at'>('company')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [typeFilter, setTypeFilter] = useState<'' | WatchlistType>('')
 
   // Add form
   const [newCompany, setNewCompany] = useState('')
@@ -41,17 +67,18 @@ export default function WatchlistPage() {
     if (search.trim()) params.set('search', search.trim())
     params.set('sortBy', sortBy)
     params.set('sortDir', sortDir)
+    if (typeFilter) params.set('type', typeFilter)
     const res = await fetch(`/api/watchlist?${params}`)
     const data = await res.json()
     setEntries(Array.isArray(data) ? data : [])
     setLoading(false)
-  }, [search, sortBy, sortDir])
+  }, [search, sortBy, sortDir, typeFilter])
 
   useEffect(() => {
     load()
   }, [load])
 
-  function handleSort(col: 'company' | 'sector' | 'created_at') {
+  function handleSort(col: 'company' | 'type' | 'sector' | 'created_at') {
     if (sortBy === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
     else {
       setSortBy(col)
@@ -59,9 +86,57 @@ export default function WatchlistPage() {
     }
   }
 
+  async function updateType(id: string, newType: WatchlistType | '') {
+    const value = newType || null
+    // Optimistic update
+    setEntries((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, type: value } : row))
+    )
+    const res = await fetch(`/api/watchlist/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: value }),
+    })
+    if (!res.ok) {
+      setToast({ message: 'Failed to update type', variant: 'error' })
+      // Re-load to get the canonical state on error
+      await load()
+    }
+  }
+
   function sortIndicator(col: string) {
     if (sortBy !== col) return ''
     return sortDir === 'asc' ? ' ↑' : ' ↓'
+  }
+
+  // Poll for up to 30s waiting for newly-added rows to get their type
+  // populated by the background inference job. Stops once every row has
+  // a type or the timeout hits.
+  async function pollForTypes() {
+    const start = Date.now()
+    const TIMEOUT_MS = 30_000
+    const INTERVAL_MS = 3000
+    while (Date.now() - start < TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS))
+      try {
+        const params = new URLSearchParams()
+        if (search.trim()) params.set('search', search.trim())
+        params.set('sortBy', sortBy)
+        params.set('sortDir', sortDir)
+        if (typeFilter) params.set('type', typeFilter)
+        const r = await fetch(`/api/watchlist?${params}`)
+        if (!r.ok) continue
+        const data = await r.json()
+        if (Array.isArray(data)) {
+          setEntries(data)
+          if (data.every((row: WatchlistEntry) => row.type !== null)) {
+            return
+          }
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -89,6 +164,9 @@ export default function WatchlistPage() {
       setNewCompany('')
       setNewSector('')
       setNewReason('')
+      // Background type inference is in flight — poll briefly so the
+      // badge fills in without requiring a manual refresh.
+      pollForTypes()
     } finally {
       setAdding(false)
     }
@@ -160,6 +238,7 @@ export default function WatchlistPage() {
       }
       setActionMsg(`Synced from contacts: ${data.added} added, ${data.skipped} already tracked.`)
       await load()
+      if (data.added > 0) pollForTypes()
     } finally {
       setSyncing(false)
     }
@@ -185,6 +264,7 @@ export default function WatchlistPage() {
           : 'AI found no new companies worth tracking.'
       )
       await load()
+      if (data.added > 0) pollForTypes()
     } finally {
       setExtracting(false)
     }
@@ -270,16 +350,35 @@ export default function WatchlistPage() {
           {addError && <div className="mt-2 text-xs text-red-600">{addError}</div>}
         </div>
 
-        {/* Search */}
+        {/* Search + Type filter */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-          <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
-          <input
-            type="text"
-            placeholder="Search company, sector, or reason…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
-          />
+          <div className="grid gap-3" style={{ gridTemplateColumns: '3fr 1fr' }}>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+              <input
+                type="text"
+                placeholder="Search company, sector, or reason…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Filter by type</label>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as WatchlistType | '')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 bg-white"
+              >
+                <option value="">All types</option>
+                {WATCHLIST_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Table */}
@@ -292,6 +391,12 @@ export default function WatchlistPage() {
                   onClick={() => handleSort('company')}
                 >
                   Company{sortIndicator('company')}
+                </th>
+                <th
+                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  onClick={() => handleSort('type')}
+                >
+                  Type{sortIndicator('type')}
                 </th>
                 <th
                   className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
@@ -312,11 +417,13 @@ export default function WatchlistPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Loading…</td></tr>
               ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                    No companies on your watchlist yet. Add one above, sync from contacts, or extract from notes.
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                    {typeFilter
+                      ? `No ${typeFilter} companies on your watchlist.`
+                      : 'No companies on your watchlist yet. Add one above, sync from contacts, or extract from notes.'}
                   </td>
                 </tr>
               ) : (
@@ -325,6 +432,36 @@ export default function WatchlistPage() {
                   return (
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{e.company}</td>
+                    <td className="px-4 py-3">
+                      <div className="relative inline-block">
+                        {e.type ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[e.type]}`}
+                          >
+                            {e.type}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Inferring…</span>
+                        )}
+                        {/* Hidden select sits on top to make the badge editable */}
+                        <select
+                          value={e.type || ''}
+                          onChange={(ev) =>
+                            updateType(e.id, ev.target.value as WatchlistType | '')
+                          }
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          aria-label={`Edit type for ${e.company}`}
+                          title="Click to change type"
+                        >
+                          <option value="">— (clear)</option>
+                          {WATCHLIST_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span>{e.sector || '—'}</span>

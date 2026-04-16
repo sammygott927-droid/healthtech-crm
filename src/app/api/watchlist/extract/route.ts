@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import Anthropic from '@anthropic-ai/sdk'
+import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -119,9 +120,26 @@ If nothing qualifies, return [].`
   const { data: inserted, error: insErr } = await supabase
     .from('watchlist')
     .upsert(rows, { onConflict: 'company', ignoreDuplicates: true })
-    .select('company')
+    .select('id, company, sector, reason')
 
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+
+  // Background type inference for the rows we just added
+  if (inserted && inserted.length > 0) {
+    after(async () => {
+      const result = await inferWatchlistTypeForMany(
+        inserted.map((r) => ({
+          id: r.id as string,
+          company: r.company as string,
+          sector: (r.sector as string | null) || null,
+          reason: (r.reason as string | null) || null,
+        }))
+      )
+      console.log(
+        `[watchlist extract] type inference: ${result.ok} ok, ${result.failed} failed`
+      )
+    })
+  }
 
   return NextResponse.json({
     added: inserted?.length || 0,

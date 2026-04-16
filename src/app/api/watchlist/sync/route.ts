@@ -1,10 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 // POST /api/watchlist/sync — add every distinct contact.company that isn't
-// already on the watchlist. Flags new rows as auto_added=true.
+// already on the watchlist. Flags new rows as auto_added=true. Type is
+// auto-inferred in the background for each newly added row.
 export async function POST() {
   const { data: contacts, error: cErr } = await supabase
     .from('contacts')
@@ -43,8 +46,32 @@ export async function POST() {
     return NextResponse.json({ added: 0, skipped: byKey.size })
   }
 
-  const { error: insErr } = await supabase.from('watchlist').insert(toInsert)
+  const { data: inserted, error: insErr } = await supabase
+    .from('watchlist')
+    .insert(toInsert)
+    .select('id, company, sector, reason')
+
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
-  return NextResponse.json({ added: toInsert.length, skipped: byKey.size - toInsert.length })
+  // Background type inference for everything we just added
+  if (inserted && inserted.length > 0) {
+    after(async () => {
+      const result = await inferWatchlistTypeForMany(
+        inserted.map((r) => ({
+          id: r.id as string,
+          company: r.company as string,
+          sector: (r.sector as string | null) || null,
+          reason: (r.reason as string | null) || null,
+        }))
+      )
+      console.log(
+        `[watchlist sync] type inference: ${result.ok} ok, ${result.failed} failed`
+      )
+    })
+  }
+
+  return NextResponse.json({
+    added: toInsert.length,
+    skipped: byKey.size - toInsert.length,
+  })
 }

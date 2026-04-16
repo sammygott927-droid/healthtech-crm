@@ -81,6 +81,10 @@ create table news_sources (
 create table watchlist (
   id uuid default gen_random_uuid() primary key,
   company text not null unique,
+  type text check (type is null or type in (
+    'Fund', 'Startup', 'Growth Stage', 'Incubator',
+    'Health System', 'Payer', 'Consulting', 'Other'
+  )),
   sector text,
   reason text,
   auto_added boolean default false,
