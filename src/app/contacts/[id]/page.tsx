@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import MaskedField from '@/components/MaskedField'
 import EditContactModal from '@/components/EditContactModal'
+import Toast, { type ToastVariant } from '@/components/Toast'
 
 interface Tag {
   id: string
@@ -86,6 +87,45 @@ export default function ContactDetailPage() {
 
   // Edit contact modal
   const [showEditModal, setShowEditModal] = useState(false)
+
+  // Re-infer sector
+  const [reinferringSector, setReinferringSector] = useState(false)
+  const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
+
+  async function reinferSector() {
+    if (reinferringSector) return
+    setReinferringSector(true)
+    try {
+      const res = await fetch(`/api/contacts/${id}/reinfer-sector`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setToast({
+          message: data.error || `Failed (${res.status})`,
+          variant: 'error',
+        })
+        return
+      }
+      if (data.updated) {
+        setToast({
+          message: `Sector updated to: ${data.sector}`,
+          variant: 'success',
+        })
+        await fetchContact()
+      } else {
+        setToast({
+          message: data.message || 'Could not determine a sector',
+          variant: 'info',
+        })
+      }
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : 'Re-infer failed',
+        variant: 'error',
+      })
+    } finally {
+      setReinferringSector(false)
+    }
+  }
 
   const fetchContact = useCallback(async () => {
     const res = await fetch(`/api/contacts/${id}`)
@@ -226,9 +266,43 @@ export default function ContactDetailPage() {
           </p>
 
           <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
-            <div>
-              <span className="text-gray-500">Sector:</span>{' '}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-gray-500">Sector:</span>
               <span className="text-gray-900">{contact.sector || '—'}</span>
+              <button
+                onClick={reinferSector}
+                disabled={reinferringSector}
+                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1.5 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Re-infer sector using web search"
+              >
+                {reinferringSector ? (
+                  <>
+                    <svg
+                      className="animate-spin h-3 w-3"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    Re-inferring…
+                  </>
+                ) : (
+                  'Re-infer'
+                )}
+              </button>
             </div>
             <div>
               <span className="text-gray-500">Email:</span>{' '}
@@ -574,6 +648,15 @@ export default function ContactDetailPage() {
           }}
           onClose={() => setShowEditModal(false)}
           onSaved={() => fetchContact()}
+        />
+      )}
+
+      {/* Toast notifications (Task 3) */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          variant={toast.variant}
+          onDismiss={() => setToast(null)}
         />
       )}
     </div>
