@@ -9,12 +9,12 @@ export interface NewsItem {
 
 const parser = new XMLParser({ ignoreAttributes: false })
 
-export async function fetchGoogleNews(query: string, maxResults = 5): Promise<NewsItem[]> {
+export async function fetchGoogleNews(query: string, maxResults = 5, timeoutMs = 10_000): Promise<NewsItem[]> {
   const encoded = encodeURIComponent(query + ' when:7d')
   const url = `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`
 
   try {
-    const res = await fetch(url, { cache: 'no-store' })
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return []
 
     const xml = await res.text()
@@ -47,11 +47,13 @@ export async function fetchGoogleNews(query: string, maxResults = 5): Promise<Ne
 export async function fetchRssFeed(
   feedUrl: string,
   sourceName: string,
-  maxResults = 10
+  maxResults = 10,
+  timeoutMs = 10_000
 ): Promise<NewsItem[]> {
   try {
     const res = await fetch(feedUrl, {
       cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         // Some feeds reject default Next fetch UA with 403
         'User-Agent': 'HealthTechCRM/1.0 (+https://example.com/bot)',
