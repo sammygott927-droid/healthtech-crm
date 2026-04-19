@@ -91,6 +91,8 @@ export default function ContactDetailPage() {
   // Re-infer sector
   const [reinferringSector, setReinferringSector] = useState(false)
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
+  // Shown while we poll for sector post-create (background inference still running)
+  const [pollingForSector, setPollingForSector] = useState(false)
 
   async function reinferSector() {
     if (reinferringSector) return
@@ -128,7 +130,7 @@ export default function ContactDetailPage() {
   }
 
   const fetchContact = useCallback(async () => {
-    const res = await fetch(`/api/contacts/${id}`)
+    const res = await fetch(`/api/contacts/${id}`, { cache: 'no-store' })
     const data = await res.json()
     if (!res.ok) return
     setContact(data)
@@ -138,6 +140,55 @@ export default function ContactDetailPage() {
   useEffect(() => {
     fetchContact()
   }, [fetchContact])
+
+  // Auto-poll for sector when it's missing but the contact has a company.
+  // This catches the post-create flow where the POST /api/contacts route
+  // kicked off sector inference via after() and the Vercel function is
+  // still running it in the background. Polls every 3s for up to 40s,
+  // stops as soon as sector becomes non-null or the limit hits.
+  useEffect(() => {
+    if (!contact) return
+    if (contact.sector) return // already have one
+    if (!contact.company) return // nothing to infer from
+
+    let cancelled = false
+    const started = Date.now()
+    const TIMEOUT_MS = 40_000
+    const INTERVAL_MS = 3000
+
+    setPollingForSector(true)
+
+    const poll = async () => {
+      while (!cancelled && Date.now() - started < TIMEOUT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS))
+        if (cancelled) return
+        try {
+          const r = await fetch(`/api/contacts/${id}`, { cache: 'no-store' })
+          if (!r.ok) continue
+          const data = await r.json()
+          if (data.sector) {
+            if (!cancelled) {
+              setContact(data)
+              setPollingForSector(false)
+            }
+            return
+          }
+        } catch {
+          // ignore transient errors and keep polling
+        }
+      }
+      if (!cancelled) setPollingForSector(false)
+    }
+    poll()
+
+    return () => {
+      cancelled = true
+      setPollingForSector(false)
+    }
+    // Only start a new poll when we first observe a contact with a missing
+    // sector — re-running on every setContact would create infinite loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact?.id, contact?.sector, contact?.company, id])
 
   async function updateField(field: string, value: unknown) {
     await fetch(`/api/contacts/${id}`, {
@@ -268,7 +319,26 @@ export default function ContactDetailPage() {
           <div className="grid grid-cols-2 gap-4 mt-4 text-sm">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-gray-500">Sector:</span>
-              <span className="text-gray-900">{contact.sector || '—'}</span>
+              <span className="text-gray-900">
+                {contact.sector ? (
+                  contact.sector
+                ) : pollingForSector ? (
+                  <span className="inline-flex items-center gap-1 text-gray-400 italic">
+                    <svg
+                      className="animate-spin h-3 w-3"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Inferring…
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </span>
               <button
                 onClick={reinferSector}
                 disabled={reinferringSector}

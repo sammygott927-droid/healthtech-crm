@@ -7,9 +7,12 @@ import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
 import { inferWatchlistSector } from '@/lib/infer-watchlist-sector'
 
 export const dynamic = 'force-dynamic'
-// Background work (sector inference etc.) runs via after(); 60s window gives
-// tier 2 web search room to finish.
-export const maxDuration = 60
+// Background work runs via after(). Three independent hooks (sector,
+// watchlist, tags) run concurrently, so the budget needs to cover the
+// slowest branch — watchlist-sector-for-many-rows can hit ~2-3 min when a
+// big CRM is first synced. After the first successful sync, subsequent POSTs
+// only process 1 new company.
+export const maxDuration = 300
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
@@ -107,33 +110,55 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Background auto-processing — non-blocking
-  after(async () => {
-    const ctx = {
-      name: created.name,
-      role: created.role,
-      company: created.company,
-      sector: created.sector,
-    }
+  // Background auto-processing — non-blocking.
+  //
+  // Prior version ran sector inference + watchlist sync + sector inference for
+  // each new watchlist row + tag regen SEQUENTIALLY inside one after(). The
+  // watchlist sector inference loop alone can eat >40s per row on Vercel, so
+  // a single after() could blow the 60s function budget before it ever got to
+  // tag regen — OR, in the reported bug, the user would see the blank sector
+  // and never refresh the page, assuming it was broken.
+  //
+  // Fix: kick off THREE independent after() hooks — sector inference on its
+  // own (the critical path), watchlist sync on its own, tag regen on its own.
+  // Even if one times out, the others run to completion.
+  const shouldInferSector = Boolean(created.company) && !contactData.sector
 
-    // 1. Sector inference (skip if user explicitly provided one on the form)
-    const shouldInferSector = Boolean(created.company) && !contactData.sector
-    if (shouldInferSector) {
+  if (shouldInferSector) {
+    after(async () => {
+      const t0 = Date.now()
+      console.log(`[contacts POST sector] starting for ${created.name} (${created.company})`)
       try {
-        await inferSectorForContact(created.id, ctx, [])
+        const result = await inferSectorForContact(
+          created.id,
+          {
+            name: created.name,
+            role: created.role,
+            company: created.company,
+            sector: created.sector,
+          },
+          []
+        )
+        console.log(
+          `[contacts POST sector] done in ${Date.now() - t0}ms for ${created.name} → ${result ?? 'UNKNOWN (not saved)'}`
+        )
       } catch (err) {
-        console.error(`[contacts POST] sector inference failed for ${created.name}:`, err)
+        console.error(
+          `[contacts POST sector] FAILED for ${created.name} after ${Date.now() - t0}ms:`,
+          err
+        )
       }
-    }
+    })
+  }
 
-    // 2. Watchlist sync — adds contact.company to watchlist if new, then
-    //    type + sector inference for any freshly-added rows.
+  after(async () => {
+    const t0 = Date.now()
+    console.log(`[contacts POST watchlist] starting`)
     try {
       const newRows = await syncContactsToWatchlist()
+      console.log(`[contacts POST watchlist] sync done in ${Date.now() - t0}ms, ${newRows.length} new rows`)
       if (newRows.length > 0) {
-        // Type inference (tiered, fast) for all new rows
         await inferWatchlistTypeForMany(newRows)
-        // Sector inference for all new rows (web search, slower — best effort)
         for (const row of newRows) {
           try {
             await inferWatchlistSector(row.id, {
@@ -142,17 +167,19 @@ export async function POST(request: NextRequest) {
               reason: row.reason,
             })
           } catch (err) {
-            console.error(`[contacts POST] watchlist sector for ${row.company} failed:`, err)
+            console.error(`[contacts POST watchlist] sector for ${row.company} failed:`, err)
           }
         }
       }
+      console.log(`[contacts POST watchlist] all done in ${Date.now() - t0}ms`)
     } catch (err) {
-      console.error(`[contacts POST] watchlist sync failed:`, err)
+      console.error(`[contacts POST watchlist] FAILED:`, err)
     }
+  })
 
-    // 3. Tag regeneration from full context + notes (runs AFTER sector inference
-    //    so the freshly-inferred sector informs tag selection). Preserves any
-    //    manual tags the user added.
+  after(async () => {
+    const t0 = Date.now()
+    console.log(`[contacts POST tags] starting for ${created.name}`)
     try {
       const { data: refreshed } = await supabase
         .from('contacts')
@@ -162,14 +189,14 @@ export async function POST(request: NextRequest) {
       if (refreshed) {
         await regenerateTagsForContact(created.id, refreshed, [])
       }
+      console.log(`[contacts POST tags] done in ${Date.now() - t0}ms`)
     } catch (err) {
       // Non-fatal — if Claude returns nothing we just leave form-submitted tags
-      console.warn(`[contacts POST] tag regen for ${created.name}:`, String(err).slice(0, 200))
+      console.warn(
+        `[contacts POST tags] for ${created.name} after ${Date.now() - t0}ms:`,
+        String(err).slice(0, 200)
+      )
     }
-
-    // Note: watchlist extraction from initial notes happens inside POST
-    // /api/notes, which the new-contact form calls separately for the
-    // initial_notes field. No duplication needed here.
   })
 
   return NextResponse.json(created, { status: 201 })
