@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { inferWatchlistType, WATCHLIST_TYPES, type WatchlistType } from '@/lib/infer-watchlist-type'
+import { inferWatchlistSector } from '@/lib/infer-watchlist-sector'
 
 export const dynamic = 'force-dynamic'
 // Inline type inference can take up to ~11s (tier 1 ~1s + tier 2 web search
@@ -84,11 +85,29 @@ export async function POST(request: NextRequest) {
       })
     } catch (err) {
       console.error(`[watchlist POST] type inference failed for ${company}:`, err)
-      // Even on failure, inferWatchlistType always persists *something* (defaults to 'Other')
-      // — but if the call itself threw, fall back to 'Other' here too.
+      // inferWatchlistType persists a value itself; only hit this branch on
+      // catastrophic failure. Default to 'Other'.
       finalType = 'Other'
       await supabase.from('watchlist').update({ type: 'Other' }).eq('id', data.id)
     }
+  }
+
+  // Sector inference (Task 9 item 16) — runs in the background because
+  // it uses web search and can take 10-20s. The Re-infer button remains
+  // available if the user wants to retry later. Only fires if the user
+  // didn't explicitly supply a sector on the form.
+  if (!sector) {
+    after(async () => {
+      try {
+        await inferWatchlistSector(data.id, {
+          company: data.company,
+          sector,
+          reason,
+        })
+      } catch (err) {
+        console.error(`[watchlist POST] sector inference for ${company}:`, err)
+      }
+    })
   }
 
   return NextResponse.json({ ...data, type: finalType })

@@ -5,6 +5,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { sendDailyDigest } from '@/lib/send-digest'
 import { dedupeActionsByContact } from '@/lib/dedupe-actions'
 import { deduplicateArticles } from '@/lib/dedupe-articles'
+import { syncContactsToWatchlist } from '@/lib/sync-contacts-to-watchlist'
+import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -122,6 +124,30 @@ async function runDailyBrief(request: NextRequest) {
         elapsed_seconds: 0,
       })
     }
+
+    // ═══ STEP 0: Auto-sync contacts → watchlist (Task 9 item 19) ═══
+    // Any non-Dormant contact.company that isn't on the watchlist yet gets
+    // added as auto_added=true before we build the universe. Type inference
+    // for new rows runs sequentially up to a short time budget; if it
+    // doesn't finish, the Re-infer UI button can catch up later.
+    const t0 = Date.now()
+    try {
+      const newlySynced = await syncContactsToWatchlist()
+      if (newlySynced.length > 0) {
+        console.log(
+          `[brief] Auto-sync added ${newlySynced.length} new watchlist rows from contacts`
+        )
+        // Fire type inference but don't let it blow the pipeline budget —
+        // cap at 15s total.
+        await Promise.race([
+          inferWatchlistTypeForMany(newlySynced),
+          new Promise((resolve) => setTimeout(resolve, 15_000)),
+        ])
+      }
+    } catch (err) {
+      console.error('[brief] Auto-sync failed (continuing with pipeline):', err)
+    }
+    console.log(`[brief] Step 0 (auto-sync) done in ${Date.now() - t0}ms`)
 
     // ═══ STEP 1: Build the universe ═══
     const [

@@ -2,9 +2,13 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { generateTagsForNote } from '@/lib/generate-tags'
 import { structureSingleNote } from '@/lib/structure-notes'
+import { extractCompaniesFromText } from '@/lib/extract-companies-from-text'
+import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
+import { inferWatchlistSector } from '@/lib/infer-watchlist-sector'
 
-// Allow up to 60s for the after() background work to finish
-export const maxDuration = 60
+// Allow up to 120s for the after() background work — structuring + tags +
+// watchlist extraction + per-row type/sector inference can stack up to ~60-90s.
+export const maxDuration = 120
 
 /**
  * POST /api/notes
@@ -80,8 +84,8 @@ export async function POST(request: NextRequest) {
     .eq('id', contact_id)
 
   // Schedule AI work to run AFTER the response is sent. On Vercel this uses
-  // waitUntil() to keep the function alive until both promises settle —
-  // unlike a bare fire-and-forget which gets frozen with the function.
+  // waitUntil() to keep the function alive until the background promises
+  // settle — unlike a bare fire-and-forget which gets frozen with the function.
   if (contact) {
     after(async () => {
       const startedAt = Date.now()
@@ -92,13 +96,79 @@ export async function POST(request: NextRequest) {
         generateTagsForNote(contact_id, contact, rawText.slice(0, 200), rawText),
       ])
 
-      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
       if (structResult.status === 'rejected') {
         console.error(`[notes-after] structureSingleNote failed:`, structResult.reason)
       }
       if (tagResult.status === 'rejected') {
         console.error(`[notes-after] generateTagsForNote failed:`, tagResult.reason)
       }
+
+      // Silent watchlist extraction (Task 9 item 10) — pull any
+      // healthcare companies the note mentions and add them to the
+      // watchlist if they're not already there. Entirely background —
+      // no UI prompt, no toast.
+      try {
+        const [{ data: allContacts }, { data: allWatchlist }] = await Promise.all([
+          supabase.from('contacts').select('company'),
+          supabase.from('watchlist').select('company'),
+        ])
+
+        const known = new Set<string>()
+        for (const c of allContacts || []) {
+          const v = (c.company as string | null)?.trim()
+          if (v) known.add(v)
+        }
+        for (const w of allWatchlist || []) {
+          const v = (w.company as string | null)?.trim()
+          if (v) known.add(v)
+        }
+
+        const candidates = await extractCompaniesFromText(rawText, known)
+        if (candidates.length > 0) {
+          const rows = candidates.map((c) => ({
+            company: c.company,
+            reason: c.reason,
+            auto_added: true,
+          }))
+          const { data: inserted } = await supabase
+            .from('watchlist')
+            .upsert(rows, { onConflict: 'company', ignoreDuplicates: true })
+            .select('id, company, sector, reason')
+
+          if (inserted && inserted.length > 0) {
+            console.log(
+              `[notes-after] silently added ${inserted.length} watchlist companies from note`
+            )
+            const newRows = inserted.map((r) => ({
+              id: r.id as string,
+              company: r.company as string,
+              sector: (r.sector as string | null) ?? null,
+              reason: (r.reason as string | null) ?? null,
+            }))
+            // Type inference (tiered, fast) for all
+            await inferWatchlistTypeForMany(newRows)
+            // Sector inference (web search, best-effort) for each
+            for (const row of newRows) {
+              try {
+                await inferWatchlistSector(row.id, {
+                  company: row.company,
+                  sector: row.sector,
+                  reason: row.reason,
+                })
+              } catch (err) {
+                console.error(
+                  `[notes-after] watchlist sector for ${row.company} failed:`,
+                  err
+                )
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[notes-after] silent watchlist extraction failed:`, err)
+      }
+
+      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
       console.log(`[notes-after] note ${note.id} jobs done in ${elapsed}s`)
     })
   }

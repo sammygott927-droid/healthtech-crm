@@ -22,7 +22,7 @@ export default function NewContactPage() {
     next_step: '',
     email: '',
     phone: '',
-    last_contact_date: new Date().toISOString().split('T')[0],
+    last_contact_date: '',
     initial_notes: '',
   })
 
