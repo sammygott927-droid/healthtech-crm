@@ -33,6 +33,22 @@ interface ActionItem {
   status: string
 }
 
+interface SourceStat {
+  source: string
+  fetched: number
+  passed: number
+  error: string | null
+}
+
+interface SourceDebug {
+  per_source: SourceStat[]
+  cutoff_iso?: string
+  total_scored?: number
+  brief_count?: number
+  action_count?: number
+  elapsed_seconds?: number
+}
+
 interface FollowUpContact {
   id: string
   name: string
@@ -46,6 +62,8 @@ type Tab = 'brief' | 'actions'
 
 export default function HomePage() {
   const [briefItems, setBriefItems] = useState<BriefItem[]>([])
+  const [sourceDebug, setSourceDebug] = useState<SourceDebug | null>(null)
+  const [showSourceDebug, setShowSourceDebug] = useState(false)
   const [actionItems, setActionItems] = useState<ActionItem[]>([])
   const [upcoming, setUpcoming] = useState<FollowUpContact[]>([])
   const [overdue, setOverdue] = useState<FollowUpContact[]>([])
@@ -68,6 +86,7 @@ export default function HomePage() {
       const followUpsData = await followUpsRes.json()
 
       setBriefItems(briefsData.brief || [])
+      setSourceDebug(briefsData.source_debug || null)
       setActionItems(briefsData.actions || [])
       setHasRun(briefsData.has_run || false)
       setUpcoming(followUpsData.upcoming || [])
@@ -279,6 +298,47 @@ export default function HomePage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Source debug (collapsible). Hidden by default, shows per-source
+                fetch + filter counts so you can diagnose a brief that came
+                back thin or empty. */}
+            {sourceDebug && sourceDebug.per_source && sourceDebug.per_source.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <button
+                  onClick={() => setShowSourceDebug((v) => !v)}
+                  className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                >
+                  {showSourceDebug ? '▼' : '▶'} Show source debug
+                </button>
+                {showSourceDebug && (
+                  <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 font-mono text-xs text-gray-700 space-y-1">
+                    {sourceDebug.per_source.map((s) => (
+                      <div key={s.source} className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900">{s.source}:</span>
+                        {s.error ? (
+                          <span className="text-red-600">
+                            {s.fetched} fetched ({s.error})
+                          </span>
+                        ) : (
+                          <span>
+                            {s.fetched} fetched, {s.passed} passed
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {sourceDebug.cutoff_iso && (
+                      <div className="text-gray-400 mt-2 pt-2 border-t border-gray-200">
+                        Freshness cutoff: {formatDate(sourceDebug.cutoff_iso)} ·{' '}
+                        {sourceDebug.total_scored ?? '?'} scored by Claude ·{' '}
+                        {sourceDebug.brief_count ?? '?'} in brief ·{' '}
+                        {sourceDebug.action_count ?? '?'} actions ·{' '}
+                        pipeline took {sourceDebug.elapsed_seconds ?? '?'}s
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

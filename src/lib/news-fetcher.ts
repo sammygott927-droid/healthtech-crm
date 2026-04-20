@@ -9,47 +9,63 @@ export interface NewsItem {
 
 const parser = new XMLParser({ ignoreAttributes: false })
 
-export async function fetchGoogleNews(query: string, maxResults = 5, timeoutMs = 10_000): Promise<NewsItem[]> {
+export interface FetchResult {
+  items: NewsItem[]
+  error: string | null
+}
+
+export async function fetchGoogleNewsDetailed(
+  query: string,
+  maxResults = 5,
+  timeoutMs = 10_000
+): Promise<FetchResult> {
   const encoded = encodeURIComponent(query + ' when:7d')
   const url = `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en`
 
   try {
     const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) })
-    if (!res.ok) return []
+    if (!res.ok) return { items: [], error: `HTTP ${res.status}` }
 
     const xml = await res.text()
     const parsed = parser.parse(xml)
 
     const items = parsed?.rss?.channel?.item
-    if (!items) return []
+    if (!items) return { items: [], error: null }
 
     const itemList = Array.isArray(items) ? items : [items]
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return itemList.slice(0, maxResults).map((item: any) => ({
+    const mapped = itemList.slice(0, maxResults).map((item: any) => ({
       title: item.title || '',
       link: item.link || '',
       pubDate: item.pubDate || '',
       source: item.source?.['#text'] || item.source || '',
     }))
+    return { items: mapped, error: null }
   } catch (err) {
+    const msg = String(err).slice(0, 100)
     console.error(`News fetch failed for "${query}":`, err)
-    return []
+    return { items: [], error: msg }
   }
 }
 
+// Back-compat thin wrapper
+export async function fetchGoogleNews(query: string, maxResults = 5, timeoutMs = 10_000): Promise<NewsItem[]> {
+  return (await fetchGoogleNewsDetailed(query, maxResults, timeoutMs)).items
+}
+
 /**
- * Fetch a generic RSS 2.0 or Atom 1.0 feed and return normalized NewsItems.
- * Tolerates the two common shapes and falls back gracefully when fields are
- * missing. `sourceName` is used as the item source (since feeds don't carry
- * their own name consistently).
+ * Fetch a generic RSS 2.0 or Atom 1.0 feed with detailed status reporting.
+ * Returns both the normalized items and any error encountered (HTTP failure,
+ * unrecognized feed shape, fetch timeout, etc.) so the caller can surface
+ * feed health to the UI.
  */
-export async function fetchRssFeed(
+export async function fetchRssFeedDetailed(
   feedUrl: string,
   sourceName: string,
   maxResults = 10,
   timeoutMs = 10_000
-): Promise<NewsItem[]> {
+): Promise<FetchResult> {
   try {
     const res = await fetch(feedUrl, {
       cache: 'no-store',
@@ -61,8 +77,9 @@ export async function fetchRssFeed(
       },
     })
     if (!res.ok) {
-      console.warn(`[rss] ${sourceName} → HTTP ${res.status} for ${feedUrl}`)
-      return []
+      const msg = `HTTP ${res.status}`
+      console.warn(`[rss] ${sourceName} → ${msg} for ${feedUrl}`)
+      return { items: [], error: msg }
     }
 
     const xml = await res.text()
@@ -73,7 +90,8 @@ export async function fetchRssFeed(
     if (rssItems) {
       const list = Array.isArray(rssItems) ? rssItems : [rssItems]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return list.slice(0, maxResults).map((item: any) => normalizeRssItem(item, sourceName))
+      const mapped = list.slice(0, maxResults).map((item: any) => normalizeRssItem(item, sourceName))
+      return { items: mapped, error: null }
     }
 
     // Atom 1.0
@@ -81,15 +99,28 @@ export async function fetchRssFeed(
     if (atomEntries) {
       const list = Array.isArray(atomEntries) ? atomEntries : [atomEntries]
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return list.slice(0, maxResults).map((entry: any) => normalizeAtomEntry(entry, sourceName))
+      const mapped = list.slice(0, maxResults).map((entry: any) => normalizeAtomEntry(entry, sourceName))
+      return { items: mapped, error: null }
     }
 
-    console.warn(`[rss] ${sourceName} → feed shape unrecognized`)
-    return []
+    const msg = 'feed shape unrecognized'
+    console.warn(`[rss] ${sourceName} → ${msg}`)
+    return { items: [], error: msg }
   } catch (err) {
+    const msg = String(err).slice(0, 100)
     console.error(`[rss] ${sourceName} → fetch failed:`, err)
-    return []
+    return { items: [], error: msg }
   }
+}
+
+// Back-compat thin wrapper
+export async function fetchRssFeed(
+  feedUrl: string,
+  sourceName: string,
+  maxResults = 10,
+  timeoutMs = 10_000
+): Promise<NewsItem[]> {
+  return (await fetchRssFeedDetailed(feedUrl, sourceName, maxResults, timeoutMs)).items
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

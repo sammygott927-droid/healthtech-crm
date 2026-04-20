@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { fetchGoogleNews, fetchFromCustomSources, NewsItem } from '@/lib/news-fetcher'
+import {
+  fetchGoogleNewsDetailed,
+  fetchRssFeedDetailed,
+  NewsItem,
+} from '@/lib/news-fetcher'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendDailyDigest } from '@/lib/send-digest'
 import { dedupeActionsByContact } from '@/lib/dedupe-actions'
@@ -232,46 +236,83 @@ async function runDailyBrief(request: NextRequest) {
     // ═══ STEP 2: Fetch ALL sources in parallel ═══
     const t2 = Date.now()
 
-    // Launch RSS + all Google News queries simultaneously
-    const rssPromise = savedSources && savedSources.length > 0
-      ? fetchFromCustomSources(
-          savedSources.map((s) => ({ name: s.name as string, url: s.url as string })),
-          10
-        )
-      : Promise.resolve([] as NewsItem[])
+    // Launch each RSS source + each Google News query individually so we can
+    // report per-source fetch health ("Rock Health: 0 fetched (HTTP 403)").
+    const sourcesList = (savedSources || []).map((s) => ({
+      name: s.name as string,
+      url: s.url as string,
+    }))
 
-    const googlePromises = googleQueries.map((q) => fetchGoogleNews(q, 10))
+    const rssFetchPromises = sourcesList.map((s) =>
+      fetchRssFeedDetailed(s.url, s.name, 10).then((res) => ({ name: s.name, ...res }))
+    )
+    const googleFetchPromises = googleQueries.map((q) =>
+      fetchGoogleNewsDetailed(q, 10).then((res) => ({ query: q, ...res }))
+    )
 
-    console.log(`[brief] Fetching ${(savedSources || []).length} RSS sources + ${googleQueries.length} Google queries in parallel…`)
+    console.log(
+      `[brief] Fetching ${sourcesList.length} RSS sources + ${googleQueries.length} Google queries in parallel…`
+    )
 
-    const [rssItemsRaw, ...googleResultArrays] = await Promise.all([
-      rssPromise,
-      ...googlePromises,
+    const [rssResults, googleResults] = await Promise.all([
+      Promise.all(rssFetchPromises),
+      Promise.all(googleFetchPromises),
     ])
 
-    const googleResultsRaw = googleResultArrays.flat()
+    console.log(`[brief] Fetch done in ${Date.now() - t2}ms`)
+
+    // ═══ FRESHNESS FILTER (max 7 days) + per-source stats ═══
+    // Applied PER-SOURCE for RSS (so the debug UI can show each feed
+    // individually) and aggregated across all queries for Google News
+    // (since individual queries are just OR-groups of companies, not
+    // distinct sources from the user's perspective).
+    const perSourceStats: {
+      source: string
+      fetched: number
+      passed: number
+      error: string | null
+    }[] = []
+
+    const rssItems: NewsItem[] = []
+    for (const r of rssResults) {
+      const filtered = filterByMaxAge(r.items, MAX_ARTICLE_AGE_DAYS)
+      rssItems.push(...filtered.kept)
+      perSourceStats.push({
+        source: r.name,
+        fetched: r.items.length,
+        passed: filtered.kept.length,
+        error: r.error,
+      })
+    }
+
+    const googleAllRaw: NewsItem[] = []
+    let googleErrorCount = 0
+    for (const g of googleResults) {
+      googleAllRaw.push(...g.items)
+      if (g.error) googleErrorCount++
+    }
+    const googleFiltered = filterByMaxAge(googleAllRaw, MAX_ARTICLE_AGE_DAYS)
+    const googleItems = googleFiltered.kept
+    perSourceStats.push({
+      source: 'Google News',
+      fetched: googleAllRaw.length,
+      passed: googleItems.length,
+      error:
+        googleErrorCount > 0
+          ? `${googleErrorCount} of ${googleResults.length} queries failed`
+          : null,
+    })
 
     console.log(
-      `[brief] Fetch done in ${Date.now() - t2}ms — RSS: ${rssItemsRaw.length}, Google: ${googleResultsRaw.length}`
+      `[brief] Freshness filter (>${MAX_ARTICLE_AGE_DAYS}d cutoff=${googleFiltered.cutoff_iso}):`
     )
+    for (const s of perSourceStats) {
+      console.log(
+        `  ${s.source}: ${s.fetched} fetched, ${s.passed} passed${s.error ? ` (${s.error})` : ''}`
+      )
+    }
 
-    // ═══ FRESHNESS FILTER (max 7 days) ═══
-    // Applied SEPARATELY to RSS and Google News so the logs reveal which
-    // source is bringing in stale content. Items with unparseable pubDate
-    // are rejected (safer than accepting a possible archive story). Items
-    // dated in the future beyond 24h are also rejected (clock skew / junk).
-    const rssFiltered = filterByMaxAge(rssItemsRaw, MAX_ARTICLE_AGE_DAYS)
-    const googleFiltered = filterByMaxAge(googleResultsRaw, MAX_ARTICLE_AGE_DAYS)
-    const rssItems = rssFiltered.kept
-    const googleResults = googleFiltered.kept
-
-    console.log(
-      `[brief] Freshness filter (>${MAX_ARTICLE_AGE_DAYS}d cutoff=${rssFiltered.cutoff_iso}): ` +
-        `RSS kept ${rssItems.length} (dropped ${rssFiltered.rejected_old} old / ${rssFiltered.rejected_unparseable} unparseable / ${rssFiltered.rejected_future} future), ` +
-        `Google kept ${googleResults.length} (dropped ${googleFiltered.rejected_old} old / ${googleFiltered.rejected_unparseable} unparseable / ${googleFiltered.rejected_future} future)`
-    )
-
-    const allRaw = [...rssItems, ...googleResults]
+    const allRaw = [...rssItems, ...googleItems]
 
     // Deduplicate. Two-stage with proper-noun anchoring + merge-until-stable
     // (see src/lib/dedupe-articles.ts for the reasoning behind each rule).
@@ -431,6 +472,22 @@ async function runDailyBrief(request: NextRequest) {
     const elapsed = Math.round((Date.now() - pipelineStart) / 1000)
     console.log(`[brief] Pipeline complete in ${elapsed}s — ${briefItems.length} brief, ${actionItems.length} actions, ${scored.length} scored`)
 
+    // ═══ STEP 8: Persist per-source stats for the UI's "Show source debug" link ═══
+    const statsPayload = {
+      per_source: perSourceStats,
+      cutoff_iso: googleFiltered.cutoff_iso,
+      total_scored: scored.length,
+      brief_count: briefItems.length,
+      action_count: actionItems.length,
+      elapsed_seconds: elapsed,
+    }
+    const { error: statsErr } = await supabase
+      .from('brief_run_stats')
+      .insert({ stats: statsPayload })
+    if (statsErr) {
+      console.error('[brief] Failed to persist run stats:', statsErr.message)
+    }
+
     return NextResponse.json({
       success: true,
       brief_count: briefItems.length,
@@ -438,6 +495,7 @@ async function runDailyBrief(request: NextRequest) {
       total_scored: scored.length,
       elapsed_seconds: elapsed,
       email: emailResult,
+      source_debug: statsPayload,
     })
   } catch (err) {
     console.error('Daily brief failed:', err)

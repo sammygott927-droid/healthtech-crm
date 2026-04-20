@@ -132,9 +132,21 @@ export async function GET() {
     status: row.status,
   }))
 
+  // Latest brief run stats from today (for the "Show source debug" link on
+  // the Daily Brief tab). If multiple runs happened today (rare — cache
+  // check usually prevents), take the most recent.
+  const { data: statsRow } = await supabase
+    .from('brief_run_stats')
+    .select('stats, created_at')
+    .gte('created_at', startOfDay)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   return NextResponse.json({
     brief,
     actions: actionItems,
     has_run: rows.length > 0,
+    source_debug: statsRow?.stats ?? null,
   })
 }

@@ -91,13 +91,21 @@ create table watchlist (
   created_at timestamptz default now()
 );
 
--- 7. Enable Row Level Security (required by Supabase, but allow all for single-user app)
+-- 8. Brief run stats (debug info per pipeline run)
+create table brief_run_stats (
+  id uuid default gen_random_uuid() primary key,
+  created_at timestamptz default now(),
+  stats jsonb not null
+);
+
+-- 9. Enable Row Level Security (required by Supabase, but allow all for single-user app)
 alter table contacts enable row level security;
 alter table notes enable row level security;
 alter table tags enable row level security;
 alter table daily_briefs enable row level security;
 alter table news_sources enable row level security;
 alter table watchlist enable row level security;
+alter table brief_run_stats enable row level security;
 
 create policy "Allow all on contacts" on contacts for all using (true) with check (true);
 create policy "Allow all on notes" on notes for all using (true) with check (true);
@@ -105,6 +113,7 @@ create policy "Allow all on tags" on tags for all using (true) with check (true)
 create policy "Allow all on daily_briefs" on daily_briefs for all using (true) with check (true);
 create policy "Allow all on news_sources" on news_sources for all using (true) with check (true);
 create policy "Allow all on watchlist" on watchlist for all using (true) with check (true);
+create policy "Allow all on brief_run_stats" on brief_run_stats for all using (true) with check (true);
 
 -- For an existing DB: run supabase-news-sources-migration.sql and
 -- supabase-watchlist-migration.sql instead (both idempotent).
