@@ -7,6 +7,15 @@ import { dedupeActionsByContact } from '@/lib/dedupe-actions'
 import { deduplicateArticles } from '@/lib/dedupe-articles'
 import { syncContactsToWatchlist } from '@/lib/sync-contacts-to-watchlist'
 import { inferWatchlistTypeForMany } from '@/lib/infer-watchlist-type'
+import { filterByMaxAge } from '@/lib/article-date-filter'
+
+// Hard cap: only articles within the last 7 days are eligible for the brief.
+const MAX_ARTICLE_AGE_DAYS = 7
+// Hard cap on Daily Brief size. Articles below relevance 6 never appear; if
+// more than 20 score ≥ 6, keep only the top 20 by relevance_score. This is a
+// MAX — if only 2 articles clear the bar, only 2 are shown.
+const MAX_BRIEF_SIZE = 20
+const MIN_BRIEF_RELEVANCE = 6
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -235,14 +244,32 @@ async function runDailyBrief(request: NextRequest) {
 
     console.log(`[brief] Fetching ${(savedSources || []).length} RSS sources + ${googleQueries.length} Google queries in parallel…`)
 
-    const [rssItems, ...googleResultArrays] = await Promise.all([
+    const [rssItemsRaw, ...googleResultArrays] = await Promise.all([
       rssPromise,
       ...googlePromises,
     ])
 
-    const googleResults = googleResultArrays.flat()
+    const googleResultsRaw = googleResultArrays.flat()
 
-    console.log(`[brief] Fetch done in ${Date.now() - t2}ms — RSS: ${rssItems.length}, Google: ${googleResults.length}`)
+    console.log(
+      `[brief] Fetch done in ${Date.now() - t2}ms — RSS: ${rssItemsRaw.length}, Google: ${googleResultsRaw.length}`
+    )
+
+    // ═══ FRESHNESS FILTER (max 7 days) ═══
+    // Applied SEPARATELY to RSS and Google News so the logs reveal which
+    // source is bringing in stale content. Items with unparseable pubDate
+    // are rejected (safer than accepting a possible archive story). Items
+    // dated in the future beyond 24h are also rejected (clock skew / junk).
+    const rssFiltered = filterByMaxAge(rssItemsRaw, MAX_ARTICLE_AGE_DAYS)
+    const googleFiltered = filterByMaxAge(googleResultsRaw, MAX_ARTICLE_AGE_DAYS)
+    const rssItems = rssFiltered.kept
+    const googleResults = googleFiltered.kept
+
+    console.log(
+      `[brief] Freshness filter (>${MAX_ARTICLE_AGE_DAYS}d cutoff=${rssFiltered.cutoff_iso}): ` +
+        `RSS kept ${rssItems.length} (dropped ${rssFiltered.rejected_old} old / ${rssFiltered.rejected_unparseable} unparseable / ${rssFiltered.rejected_future} future), ` +
+        `Google kept ${googleResults.length} (dropped ${googleFiltered.rejected_old} old / ${googleFiltered.rejected_unparseable} unparseable / ${googleFiltered.rejected_future} future)`
+    )
 
     const allRaw = [...rssItems, ...googleResults]
 
@@ -378,9 +405,13 @@ async function runDailyBrief(request: NextRequest) {
     }
 
     // ═══ STEP 7: Send email digest ═══
+    // Apply the same brief filter used by the Daily Brief tab: relevance ≥ 6,
+    // sorted desc, capped at MAX_BRIEF_SIZE. 20 is a MAX — if fewer clear the
+    // bar, fewer are sent. Never padded with low-quality filler.
     const briefItems = scored
-      .filter((a) => a.relevance_score >= 6)
+      .filter((a) => a.relevance_score >= MIN_BRIEF_RELEVANCE)
       .sort((a, b) => b.relevance_score - a.relevance_score)
+      .slice(0, MAX_BRIEF_SIZE)
 
     const actionItems = buildActionItems(scored, contactList)
 

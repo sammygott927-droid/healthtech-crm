@@ -4,6 +4,12 @@ import { dedupeActionsByContact } from '@/lib/dedupe-actions'
 
 export const dynamic = 'force-dynamic'
 
+// Hard cap on Daily Brief size. Articles below relevance 6 never appear; if
+// more than 20 score ≥ 6, keep only the top 20 by relevance_score. This is a
+// MAX — if only 2 articles clear the bar, only 2 are shown. Never padded.
+const MAX_BRIEF_SIZE = 20
+const MIN_BRIEF_RELEVANCE = 6
+
 /**
  * GET /api/briefs-today
  *
@@ -30,9 +36,14 @@ export async function GET() {
 
   const rows = data || []
 
-  // Brief tab: relevance_score >= 6
+  // Brief tab: relevance_score ≥ 6, sorted desc, hard-capped at 20.
+  // The upstream query already orders by relevance_score desc, but we sort
+  // again defensively in case a future change re-orders. 20 is a MAX — if
+  // only 2 articles clear the bar, only 2 are returned. Never padded.
   const brief = rows
-    .filter((r) => (r.relevance_score as number) >= 6)
+    .filter((r) => (r.relevance_score as number) >= MIN_BRIEF_RELEVANCE)
+    .sort((a, b) => (b.relevance_score as number) - (a.relevance_score as number))
+    .slice(0, MAX_BRIEF_SIZE)
     .map((r) => ({
       id: r.id,
       headline: r.headline,
