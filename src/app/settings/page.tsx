@@ -197,7 +197,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-xl">
+      <div className="w-full">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
 
         {/* News Sources — FIRST section (Task 2) */}

@@ -64,7 +64,7 @@ export default function ContactsPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-6xl">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
           <div className="flex gap-3">

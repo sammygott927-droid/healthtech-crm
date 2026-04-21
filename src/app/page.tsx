@@ -159,7 +159,7 @@ export default function HomePage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-4xl">
+      <div className="w-full">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

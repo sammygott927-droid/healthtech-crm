@@ -195,7 +195,7 @@ export default function WatchlistDetailPage() {
 
   return (
     <div className="p-8">
-      <div className="max-w-4xl">
+      <div className="w-full">
         <Link href="/watchlist" className="text-sm text-blue-600 hover:underline mb-4 inline-block">
           ← Back to Watchlist
         </Link>
