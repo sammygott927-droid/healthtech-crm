@@ -86,7 +86,10 @@ create table watchlist (
     'Health System', 'Payer', 'Consulting', 'Other'
   )),
   sector text,
+  stage text,
+  description text,
   reason text,
+  notes text,
   auto_added boolean default false,
   created_at timestamptz default now()
 );

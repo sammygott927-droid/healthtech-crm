@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import Toast, { type ToastVariant } from '@/components/Toast'
 
 const WATCHLIST_TYPES = [
@@ -467,7 +468,14 @@ export default function WatchlistPage() {
                   const isReinferring = reinferringIds.has(e.id)
                   return (
                   <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{e.company}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/watchlist/${e.id}`}
+                        className="text-gray-900 hover:text-blue-700 hover:underline"
+                      >
+                        {e.company}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="relative inline-block">

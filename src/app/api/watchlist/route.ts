@@ -23,7 +23,9 @@ export async function GET(request: NextRequest) {
 
   let q = supabase
     .from('watchlist')
-    .select('id, company, type, sector, reason, auto_added, created_at')
+    .select(
+      'id, company, type, sector, stage, description, reason, notes, auto_added, created_at'
+    )
     .order(orderCol, { ascending: sortDir === 'asc' })
 
   if (search) {
@@ -61,7 +63,9 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from('watchlist')
     .insert({ company, sector, reason, type: explicitType, auto_added: false })
-    .select('id, company, type, sector, reason, auto_added, created_at')
+    .select(
+      'id, company, type, sector, stage, description, reason, notes, auto_added, created_at'
+    )
     .single()
 
   if (error) {
