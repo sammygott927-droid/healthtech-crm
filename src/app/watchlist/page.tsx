@@ -58,9 +58,10 @@ export default function WatchlistPage() {
   const [extracting, setExtracting] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
 
-  // Per-row Re-infer state (set of row ids currently re-inferring)
-  const [reinferringIds, setReinferringIds] = useState<Set<string>>(new Set())
-  const [reinferringTypeIds, setReinferringTypeIds] = useState<Set<string>>(new Set())
+  // Re-infer buttons are intentionally NOT available in the main table
+  // (Task 12) — they only live on the detail page at /watchlist/[id].
+  // Toast state is still kept so Sync-from-Contacts / Extract-from-Notes /
+  // per-row type edits can surface their results here.
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null)
 
   const load = useCallback(async () => {
@@ -103,41 +104,6 @@ export default function WatchlistPage() {
       setToast({ message: 'Failed to update type', variant: 'error' })
       // Re-load to get the canonical state on error
       await load()
-    }
-  }
-
-  async function reinferType(id: string, company: string) {
-    if (reinferringTypeIds.has(id)) return
-    setReinferringTypeIds((prev) => new Set(prev).add(id))
-    try {
-      const res = await fetch(`/api/watchlist/${id}/reinfer-type`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setToast({
-          message: data.error || `Failed for ${company} (${res.status})`,
-          variant: 'error',
-        })
-        return
-      }
-      setToast({
-        message: `Type updated to: ${data.type}`,
-        variant: 'success',
-      })
-      // Update the row in place so the new badge shows immediately
-      setEntries((prev) =>
-        prev.map((row) => (row.id === id ? { ...row, type: data.type } : row))
-      )
-    } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : `Re-infer failed for ${company}`,
-        variant: 'error',
-      })
-    } finally {
-      setReinferringTypeIds((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
     }
   }
 
@@ -206,48 +172,6 @@ export default function WatchlistPage() {
       pollForTypes()
     } finally {
       setAdding(false)
-    }
-  }
-
-  async function reinferSector(id: string, company: string) {
-    if (reinferringIds.has(id)) return
-    setReinferringIds((prev) => new Set(prev).add(id))
-    try {
-      const res = await fetch(`/api/watchlist/${id}/reinfer-sector`, { method: 'POST' })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setToast({
-          message: data.error || `Failed for ${company} (${res.status})`,
-          variant: 'error',
-        })
-        return
-      }
-      if (data.updated) {
-        setToast({
-          message: `Sector updated to: ${data.sector}`,
-          variant: 'success',
-        })
-        // Update the local row in place so the new sector shows immediately
-        setEntries((prev) =>
-          prev.map((row) => (row.id === id ? { ...row, sector: data.sector } : row))
-        )
-      } else {
-        setToast({
-          message: data.message || `Could not determine a sector for ${company}`,
-          variant: 'info',
-        })
-      }
-    } catch (err) {
-      setToast({
-        message: err instanceof Error ? err.message : `Re-infer failed for ${company}`,
-        variant: 'error',
-      })
-    } finally {
-      setReinferringIds((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
     }
   }
 
@@ -465,7 +389,6 @@ export default function WatchlistPage() {
                 </tr>
               ) : (
                 entries.map((e) => {
-                  const isReinferring = reinferringIds.has(e.id)
                   return (
                   <tr key={e.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium">
@@ -477,109 +400,39 @@ export default function WatchlistPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="relative inline-block">
-                          {e.type ? (
-                            <span
-                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[e.type]}`}
-                            >
-                              {e.type}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                          {/* Hidden select sits on top so the badge is editable */}
-                          <select
-                            value={e.type || ''}
-                            onChange={(ev) =>
-                              updateType(e.id, ev.target.value as WatchlistType | '')
-                            }
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            aria-label={`Edit type for ${e.company}`}
-                            title="Click to change type"
+                      <div className="relative inline-block">
+                        {e.type ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[e.type]}`}
                           >
-                            <option value="">— (clear)</option>
-                            {WATCHLIST_TYPES.map((t) => (
-                              <option key={t} value={t}>
-                                {t}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <button
-                          onClick={() => reinferType(e.id, e.company)}
-                          disabled={reinferringTypeIds.has(e.id)}
-                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1.5 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          title="Re-infer type"
+                            {e.type}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                        {/* Hidden select sits on top so the badge is editable
+                            inline without a modal. Re-infer for Type / Sector
+                            lives on the detail page (Task 12). */}
+                        <select
+                          value={e.type || ''}
+                          onChange={(ev) =>
+                            updateType(e.id, ev.target.value as WatchlistType | '')
+                          }
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          aria-label={`Edit type for ${e.company}`}
+                          title="Click to change type"
                         >
-                          {reinferringTypeIds.has(e.id) ? (
-                            <>
-                              <svg
-                                className="animate-spin h-3 w-3"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                />
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                              </svg>
-                              …
-                            </>
-                          ) : (
-                            'Re-infer'
-                          )}
-                        </button>
+                          <option value="">— (clear)</option>
+                          {WATCHLIST_TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>{e.sector || '—'}</span>
-                        <button
-                          onClick={() => reinferSector(e.id, e.company)}
-                          disabled={isReinferring}
-                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1.5 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          title="Re-infer sector using web search"
-                        >
-                          {isReinferring ? (
-                            <>
-                              <svg
-                                className="animate-spin h-3 w-3"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                />
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                              </svg>
-                              Re-inferring…
-                            </>
-                          ) : (
-                            'Re-infer'
-                          )}
-                        </button>
-                      </div>
+                      {e.sector || '—'}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{e.reason || '—'}</td>
                     <td className="px-4 py-3">
