@@ -198,11 +198,11 @@ export default function SettingsPage() {
   return (
     <div className="p-8">
       <div className="w-full">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+        <div className="mb-6"><h1 className="text-3xl font-bold tracking-tight text-gray-900">Settings</h1><p className="text-sm text-gray-500 mt-1">Configure your digest email, news sources, and maintenance jobs.</p></div>
 
         {/* News Sources — FIRST section (Task 2) */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1">News Sources</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">News Sources</h2>
           <p className="text-xs text-gray-500 mb-4">
             RSS/blog feeds pulled into your daily brief alongside Google News. Paste any RSS or blog URL — if a feed fails to load, delete it and try a different URL (e.g. <code className="bg-gray-100 px-1 rounded text-[11px]">/rss</code>, <code className="bg-gray-100 px-1 rounded text-[11px]">/feed</code>, <code className="bg-gray-100 px-1 rounded text-[11px]">/atom.xml</code>).
           </p>
@@ -273,7 +273,7 @@ export default function SettingsPage() {
           </form>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6">
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -364,8 +364,8 @@ export default function SettingsPage() {
         </div>
 
         {/* Maintenance */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1">Maintenance</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Maintenance</h2>
           <p className="text-xs text-gray-400 mb-4">One-time operations for bulk data management.</p>
 
           <div>

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Toast, { type ToastVariant } from '@/components/Toast'
 import EditWatchlistModal, { type EditableWatchlistEntry } from '@/components/EditWatchlistModal'
+import { statusBadgeClasses, BADGE_BASE, H1 } from '@/lib/ui-tokens'
 
 const WATCHLIST_TYPES = [
   'Fund',
@@ -175,13 +176,6 @@ export default function WatchlistDetailPage() {
     )
   }
 
-  const statusColor = (s: string | null) => {
-    if (s === 'Active') return 'bg-green-100 text-green-800'
-    if (s === 'Warm') return 'bg-yellow-100 text-yellow-800'
-    if (s === 'Cold') return 'bg-blue-100 text-blue-800'
-    return 'bg-gray-100 text-gray-600'
-  }
-
   const editable: EditableWatchlistEntry = {
     id: entry.id,
     company: entry.company,
@@ -201,7 +195,7 @@ export default function WatchlistDetailPage() {
         </Link>
 
         {/* Header card */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 relative">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4 relative">
           <button
             onClick={() => setShowEditModal(true)}
             className="absolute top-4 right-4 p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -225,7 +219,7 @@ export default function WatchlistDetailPage() {
           </button>
 
           <div className="flex items-center gap-3 flex-wrap mb-2">
-            <h1 className="text-2xl font-bold text-gray-900">{entry.company}</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-gray-900">{entry.company}</h1>
             {entry.type && (
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${TYPE_BADGE[entry.type]}`}
@@ -300,7 +294,7 @@ export default function WatchlistDetailPage() {
 
         {/* Reason + Notes */}
         {(entry.reason || entry.notes) && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4 space-y-4">
             {entry.reason && (
               <div>
                 <h3 className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">
@@ -321,7 +315,7 @@ export default function WatchlistDetailPage() {
         )}
 
         {/* Related contacts */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
             Related contacts
             {entry.related_contacts.length > 0 && (
@@ -346,7 +340,7 @@ export default function WatchlistDetailPage() {
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-medium text-gray-900">{c.name}</span>
                     {c.status && (
-                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColor(c.status)}`}>
+                      <span className={`${BADGE_BASE} ${statusBadgeClasses(c.status)}`}>
                         {c.status}
                       </span>
                     )}
@@ -368,7 +362,7 @@ export default function WatchlistDetailPage() {
         </div>
 
         {/* Recent news */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
             Recent news
             {entry.recent_articles.length > 0 && (

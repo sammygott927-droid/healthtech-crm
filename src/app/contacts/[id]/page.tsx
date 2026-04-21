@@ -6,6 +6,7 @@ import Link from 'next/link'
 import MaskedField from '@/components/MaskedField'
 import EditContactModal from '@/components/EditContactModal'
 import Toast, { type ToastVariant } from '@/components/Toast'
+import { statusBadgeClasses, BADGE_BASE, TAG_PILL, CARD, H1 } from '@/lib/ui-tokens'
 
 interface Tag {
   id: string
@@ -287,7 +288,7 @@ export default function ContactDetailPage() {
         </Link>
 
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 relative">
+        <div className={`${CARD} p-6 mb-4 relative`}>
           <button
             onClick={() => setShowEditModal(true)}
             className="absolute top-4 right-4 p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -309,7 +310,14 @@ export default function ContactDetailPage() {
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
             </svg>
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">{contact.name}</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className={H1}>{contact.name}</h1>
+            {contact.status && (
+              <span className={`${BADGE_BASE} ${statusBadgeClasses(contact.status)}`}>
+                {contact.status}
+              </span>
+            )}
+          </div>
           <p className="text-gray-600 mt-1">
             {contact.role && <span>{contact.role}</span>}
             {contact.role && contact.company && <span> at </span>}
@@ -398,7 +406,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Status, Next Step, Follow-up Cadence */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 space-y-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-4 space-y-4">
           {/* Status */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 w-28">Status:</span>
@@ -500,16 +508,21 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Tags */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Tags</h2>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {contact.tags.length === 0 && <span className="text-sm text-gray-400">No tags yet</span>}
+        <div className={`${CARD} p-6 mb-4`}>
+          <h2 className="text-[11px] uppercase tracking-wider font-semibold text-gray-500 mb-3">
+            Tags
+          </h2>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {contact.tags.length === 0 && (
+              <span className="text-sm text-gray-400">No tags yet</span>
+            )}
             {contact.tags.map((t) => (
-              <span key={t.id} className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 px-2.5 py-1 rounded text-sm">
+              <span key={t.id} className={TAG_PILL}>
                 {t.tag}
                 <button
                   onClick={() => removeTag(t.id)}
                   className="text-purple-400 hover:text-purple-700 ml-0.5"
+                  aria-label={`Remove tag ${t.tag}`}
                 >
                   ×
                 </button>
@@ -536,7 +549,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Notes — one conversation card per note, newest first */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-700">Notes</h2>
             <button

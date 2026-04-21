@@ -42,9 +42,9 @@ export default function ImportPage() {
           ← Back to Contacts
         </Link>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Import Contacts</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900 mb-6">Import Contacts</h1>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <p className="text-sm text-gray-600 mb-4">
             Upload a CSV with columns: name, role, company, sector, referral_source, status, next_step, email, phone, last_contact_date, notes.
             Column order doesn&apos;t matter. Missing fields will be left blank.

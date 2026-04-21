@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import QuickAddModal from '@/components/QuickAddModal'
+import { statusBadgeClasses, BADGE_BASE, TAG_PILL, CARD, H1 } from '@/lib/ui-tokens'
 
 interface Contact {
   id: string
@@ -66,7 +67,12 @@ export default function ContactsPage() {
     <div className="p-8">
       <div className="w-full">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
+          <div>
+            <h1 className={H1}>Contacts</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Your healthcare network — search, filter, and drill into the details.
+            </p>
+          </div>
           <div className="flex gap-3">
             <Link
               href="/import"
@@ -104,7 +110,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4 flex flex-wrap gap-3 items-end">
+        <div className={`${CARD} p-4 mb-4 flex flex-wrap gap-3 items-end`}>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
             <input
@@ -150,34 +156,40 @@ export default function ContactsPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className={`${CARD} overflow-hidden`}>
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('name')}
                 >
                   Name{sortIndicator('name')}
                 </th>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('company')}
                 >
                   Company{sortIndicator('company')}
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">
+                  Role
+                </th>
+                <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">
+                  Status
+                </th>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('last_contact_date')}
                 >
                   Last Contact{sortIndicator('last_contact_date')}
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Tags</th>
+                <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">
+                  Tags
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-gray-400">Loading...</td>
@@ -192,22 +204,23 @@ export default function ContactsPage() {
                   </td>
                 </tr>
               ) : (
-                contacts.map((c) => (
-                  <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+                contacts.map((c, idx) => (
+                  <tr
+                    key={c.id}
+                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50/40 transition-colors`}
+                  >
                     <td className="px-4 py-3">
-                      <Link href={`/contacts/${c.id}`} className="text-blue-600 hover:underline font-medium">
+                      <Link
+                        href={`/contacts/${c.id}`}
+                        className="text-gray-900 hover:text-blue-700 font-semibold"
+                      >
                         {c.name}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{c.company || '—'}</td>
                     <td className="px-4 py-3 text-gray-700">{c.role || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                        c.status === 'Active' ? 'bg-green-100 text-green-800' :
-                        c.status === 'Warm' ? 'bg-yellow-100 text-yellow-800' :
-                        c.status === 'Cold' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-600'
-                      }`}>
+                      <span className={`${BADGE_BASE} ${statusBadgeClasses(c.status)}`}>
                         {c.status || '—'}
                       </span>
                     </td>
@@ -217,14 +230,16 @@ export default function ContactsPage() {
                         : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1.5">
                         {c.tags?.slice(0, 3).map((t, i) => (
-                          <span key={i} className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs">
+                          <span key={i} className={TAG_PILL}>
                             {t.tag}
                           </span>
                         ))}
                         {c.tags?.length > 3 && (
-                          <span className="text-xs text-gray-400">+{c.tags.length - 3}</span>
+                          <span className="text-xs text-gray-400 self-center">
+                            +{c.tags.length - 3}
+                          </span>
                         )}
                       </div>
                     </td>

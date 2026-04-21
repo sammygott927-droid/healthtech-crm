@@ -191,7 +191,7 @@ export default function NewContactPage() {
           ← Back to Contacts
         </Link>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Add Contact</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900 mb-6">Add Contact</h1>
 
         {prefilledFrom && (
           <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 flex items-start gap-2">
@@ -215,7 +215,7 @@ export default function NewContactPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
             <input

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Toast, { type ToastVariant } from '@/components/Toast'
+import { CARD, H1 } from '@/lib/ui-tokens'
 
 const WATCHLIST_TYPES = [
   'Fund',
@@ -234,8 +235,13 @@ export default function WatchlistPage() {
   return (
     <div className="p-8">
       <div className="w-full">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold text-gray-900">Watchlist</h1>
+        <div className="flex items-start justify-between mb-2 flex-wrap gap-3">
+          <div>
+            <h1 className={H1}>Watchlist</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Companies tracked in the daily brief — click a company name to open its detail page.
+            </p>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={handleSync}
@@ -254,9 +260,7 @@ export default function WatchlistPage() {
             </button>
           </div>
         </div>
-        <p className="text-sm text-gray-500 mb-6">
-          Companies tracked in the daily brief even when no contact is associated.
-        </p>
+        <div className="mb-6" />
 
         {actionMsg && (
           <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 px-4 py-2 text-sm">
@@ -265,7 +269,7 @@ export default function WatchlistPage() {
         )}
 
         {/* Add form */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
           <form onSubmit={handleAdd} className="grid gap-3" style={{ gridTemplateColumns: '2fr 1fr 3fr auto' }}>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Company *</label>
@@ -312,7 +316,7 @@ export default function WatchlistPage() {
         </div>
 
         {/* Search + Type filter */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
           <div className="grid gap-3" style={{ gridTemplateColumns: '3fr 1fr' }}>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
@@ -343,37 +347,37 @@ export default function WatchlistPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('company')}
                 >
                   Company{sortIndicator('company')}
                 </th>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('type')}
                 >
                   Type{sortIndicator('type')}
                 </th>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('sector')}
                 >
                   Sector{sortIndicator('sector')}
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Reason</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Source</th>
+                <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">Reason</th>
+                <th className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">Source</th>
                 <th
-                  className="text-left px-4 py-3 font-medium text-gray-600 cursor-pointer hover:text-gray-900"
+                  className="text-left px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500 cursor-pointer hover:text-gray-900"
                   onClick={() => handleSort('created_at')}
                 >
                   Added{sortIndicator('created_at')}
                 </th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+                <th className="text-right px-4 py-3 text-[11px] uppercase tracking-wider font-semibold text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -388,9 +392,12 @@ export default function WatchlistPage() {
                   </td>
                 </tr>
               ) : (
-                entries.map((e) => {
+                entries.map((e, idx) => {
                   return (
-                  <tr key={e.id} className="hover:bg-gray-50">
+                  <tr
+                    key={e.id}
+                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50/40 transition-colors`}
+                  >
                     <td className="px-4 py-3 font-medium">
                       <Link
                         href={`/watchlist/${e.id}`}
