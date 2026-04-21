@@ -21,20 +21,28 @@ begin
   end if;
 end $$;
 
--- Seed 14 default sources. RSS URLs are best-effort — adjust any that 404 via
+-- Seed default sources. RSS URLs are best-effort — adjust any that 404 via
 -- the Settings UI (delete + add with the correct URL).
+--
+-- Sources intentionally NOT seeded because they have no public RSS feed
+-- (verified Apr 2026 — bespoke Next.js sites or paywalled newsletters):
+--   General Catalyst "Stories"   — bespoke site, no RSS
+--   Oak HC/FT                    — bespoke site, no RSS
+--   Bessemer Atlas               — bespoke site, no RSS
+--   Axios Pro Health Tech        — paywalled, no public RSS
+-- If any of these start publishing RSS, add them via Settings → News Sources.
+--
+-- a16z Bio's WordPress feed was removed when they migrated off WP. The best
+-- available substitute is their flagship bio+health podcast (Raising Health),
+-- which runs on Simplecast and ships a full RSS feed.
 insert into news_sources (name, url) values
-  ('Out-of-Pocket',            'https://www.outofpocket.health/blog/rss.xml'),
+  ('Out-of-Pocket',            'https://outofpocket.substack.com/feed'),
   ('STAT News',                'https://www.statnews.com/feed/'),
-  ('Rock Health',              'https://rockhealth.com/feed/'),
+  ('Rock Health',               'https://rockhealth.com/feed/'),
   ('Fierce Healthcare',        'https://www.fiercehealthcare.com/rss/xml'),
   ('MedCity News',             'https://medcitynews.com/feed/'),
-  ('a16z Bio',                 'https://a16z.com/feed/'),
-  ('General Catalyst blog',    'https://www.generalcatalyst.com/feed'),
-  ('F-Prime blog',             'https://www.fprimecapital.com/insights/feed'),
-  ('Oak HC/FT blog',           'https://oakhcft.com/feed'),
-  ('Bessemer Health',          'https://www.bvp.com/atlas/feed'),
-  ('Axios Pro Health Tech',    'https://www.axios.com/newsletters/axios-pro-health-tech/feed'),
+  ('a16z Bio',                 'https://raising-health.simplecast.com/episodes/feed'),
+  ('F-Prime blog',             'https://www.fprimecapital.com/blog/feed/'),
   ('CB Insights Health',       'https://www.cbinsights.com/research/feed/'),
   ('Stratechery',              'https://stratechery.com/feed/'),
   ('John Gannon Blog',         'https://www.johngannonblog.com/feed')
