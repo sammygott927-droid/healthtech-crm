@@ -75,6 +75,48 @@ function computeSignalBoost(title: string): number {
 
 const HEALTHCARE_BROAD = /\bhealth(?:care|tech)?\b|\bmedic(?:al|ine|aid|are)\b|\bclinic(?:al)?\b|\bpatient\b|\bpharma\b|\bbiotech\b|\bFDA\b|\bCMS\b|\bpayer\b|\bprovider\b|\binsur(?:ance|er)\b|\bhospital\b|\btherapeutic\b|\bdiagnostic\b/i
 
+// Sectors that don't help disambiguate a Google News query — they're either
+// the healthcare default or too broad to anchor a search. Matched lowercase.
+const GENERIC_SECTORS_FOR_SEARCH = new Set([
+  '', 'healthcare', 'health care', 'healthtech', 'health tech', 'health-tech',
+  'digital health', 'health it', 'medical', 'medicine', 'wellness',
+  'technology', 'tech', 'software', 'saas', 'startup', 'business',
+  'consulting', 'unknown', 'n/a', 'na', 'other', 'general',
+])
+
+/**
+ * Derive a short anchor phrase to AND onto the company name in Google News
+ * searches. Without this, "Cadence" returns robotics articles; with
+ * "Cadence remote patient monitoring" / "Cadence healthcare" it stays on topic.
+ *
+ *   sector = "remote patient monitoring"                → "remote patient monitoring"
+ *   sector = "value-based primary care"                 → "value-based primary care"
+ *   sector = "healthcare services and digital health investing" → "healthcare"
+ *   sector = null / "Digital Health" / "" / "Healthcare" → "healthcare"
+ */
+function disambiguatorFor(sector: string | null): string {
+  if (!sector) return 'healthcare'
+  const trimmed = sector.trim()
+  if (!trimmed) return 'healthcare'
+  if (GENERIC_SECTORS_FOR_SEARCH.has(trimmed.toLowerCase())) return 'healthcare'
+
+  // Investor sectors often end in "…investing" or stack multiple domains
+  // joined by "and" / "," / "/". Take the first clause so the anchor stays
+  // tight (Google News doesn't love long search terms).
+  const firstClause = trimmed.split(/\s+(?:and|&)\s+|,|\//i)[0].trim()
+  // Strip a trailing " investing" / " investor" suffix since it doesn't
+  // add disambiguation value in a news search.
+  const stripped = firstClause.replace(/\s+(?:investing|investor)\s*$/i, '').trim()
+  // Cap at 3 words so queries stay compact.
+  const words = stripped.split(/\s+/).slice(0, 3)
+  const anchor = words.join(' ').trim()
+  // If stripping left us with something generic, fall back to healthcare.
+  if (!anchor || GENERIC_SECTORS_FOR_SEARCH.has(anchor.toLowerCase())) {
+    return 'healthcare'
+  }
+  return anchor
+}
+
 // ── Interfaces ───────────────────────────────────────────────────
 
 type BriefCategory =
@@ -203,8 +245,13 @@ async function runDailyBrief(request: NextRequest) {
       status: c.status as string | null,
     }))
 
-    // Company terms get searched via Google News; all terms used for pre-filter
+    // Company terms + per-company sectors for query disambiguation.
+    // Without a sector anchor, Google News happily returns articles about
+    // "Cadence" the EDA/robotics company when we want Cadence the remote
+    // patient monitoring startup. Attaching the company's sector (or at
+    // least "healthcare") scopes the results to the right domain.
     const companyTerms: string[] = []
+    const companyToSector = new Map<string, string | null>() // lowercase key
     const allTerms = new Set<string>()
 
     for (const c of contactList) {
@@ -213,6 +260,7 @@ async function runDailyBrief(request: NextRequest) {
         if (!allTerms.has(key)) {
           allTerms.add(key)
           companyTerms.push(c.company.trim()) // keep original case for queries
+          companyToSector.set(key, c.sector)
         }
       }
       if (c.sector) {
@@ -227,6 +275,7 @@ async function runDailyBrief(request: NextRequest) {
         if (!allTerms.has(key)) {
           allTerms.add(key)
           companyTerms.push(company)
+          companyToSector.set(key, (w.sector as string | null) || null)
         }
       }
     }
@@ -235,19 +284,40 @@ async function runDailyBrief(request: NextRequest) {
       if (tag && tag.length >= 3) allTerms.add(tag.toLowerCase())
     }
 
-    // Build OR-grouped Google News queries (5 companies per query)
-    const OR_GROUP_SIZE = 5
-    const googleQueries: string[] = []
-    for (let i = 0; i < companyTerms.length; i += OR_GROUP_SIZE) {
-      const group = companyTerms.slice(i, i + OR_GROUP_SIZE)
-      // Quote multi-word names, join with OR
-      const query = group
-        .map((t) => (t.includes(' ') ? `"${t}"` : t))
-        .join(' OR ')
-      googleQueries.push(query)
+    // ─── Per-company disambiguator ───
+    // Pick a short anchor phrase (≤ 3 words) for each company based on its
+    // sector. Generic sectors fall back to "healthcare". This keeps
+    // "Cadence" → "Cadence remote patient monitoring" and stops the bot
+    // from returning robotics-EDA articles.
+    const buckets = new Map<string, string[]>() // disambiguator → companies
+    for (const company of companyTerms) {
+      const sector = companyToSector.get(company.toLowerCase()) || null
+      const disambig = disambiguatorFor(sector)
+      const list = buckets.get(disambig) || []
+      list.push(company)
+      buckets.set(disambig, list)
     }
 
-    console.log(`[brief] Universe: ${allTerms.size} total terms, ${companyTerms.length} companies → ${googleQueries.length} OR-grouped Google queries`)
+    // Build OR-grouped Google News queries (5 companies per query, grouped
+    // by their shared disambiguator). Format: ("A" OR "B" OR ...) <anchor>
+    // Parentheses force Google to treat OR as the tighter binding.
+    const OR_GROUP_SIZE = 5
+    const googleQueries: string[] = []
+    for (const [disambig, companies] of buckets.entries()) {
+      for (let i = 0; i < companies.length; i += OR_GROUP_SIZE) {
+        const group = companies.slice(i, i + OR_GROUP_SIZE)
+        const orPart = group
+          .map((t) => (t.includes(' ') ? `"${t}"` : t))
+          .join(' OR ')
+        // Quote multi-word anchors so Google treats them as a phrase.
+        const anchor = disambig.includes(' ') ? `"${disambig}"` : disambig
+        googleQueries.push(`(${orPart}) ${anchor}`)
+      }
+    }
+
+    console.log(
+      `[brief] Universe: ${allTerms.size} total terms, ${companyTerms.length} companies → ${googleQueries.length} OR-grouped Google queries (${buckets.size} disambiguator buckets)`
+    )
 
     // ═══ STEP 2: Fetch ALL sources in parallel ═══
     const t2 = Date.now()
