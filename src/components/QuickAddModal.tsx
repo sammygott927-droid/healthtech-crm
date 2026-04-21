@@ -46,14 +46,9 @@ export default function QuickAddModal({ onClose }: Props) {
     return () => window.removeEventListener('keydown', handleKey)
   }, [onClose])
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Shared: load a File (from input OR paste) as the current upload.
+  function loadImageFile(file: File) {
     setError(null)
-    const file = e.target.files?.[0]
-    if (!file) {
-      setImageFile(null)
-      setImagePreview(null)
-      return
-    }
     if (!file.type.startsWith('image/')) {
       setError('Please select an image file.')
       return
@@ -64,6 +59,48 @@ export default function QuickAddModal({ onClose }: Props) {
       setImagePreview(reader.result as string)
     }
     reader.readAsDataURL(file)
+  }
+
+  // Clipboard paste support (Task 10 follow-up). Active ONLY while the
+  // image tab is showing so pasting text into the other tab's textarea
+  // keeps working normally. Listens document-wide so the user can paste
+  // from anywhere on the modal — no focused drop target required.
+  useEffect(() => {
+    if (mode !== 'image') return
+
+    function handlePaste(e: ClipboardEvent) {
+      if (!e.clipboardData) return
+      // Walk the DataTransferItemList looking for an image. Screenshots
+      // from Cmd+Shift+4 (macOS) or Snip & Sketch (Windows) land as
+      // image/png items.
+      for (const item of Array.from(e.clipboardData.items)) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            e.preventDefault()
+            loadImageFile(file)
+            return
+          }
+        }
+      }
+      // Nothing image-y in the clipboard — leave the default paste behavior
+      // alone so the user can still paste into other inputs if any are
+      // ever rendered next to the upload area.
+    }
+
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [mode])
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setError(null)
+    const file = e.target.files?.[0]
+    if (!file) {
+      setImageFile(null)
+      setImagePreview(null)
+      return
+    }
+    loadImageFile(file)
   }
 
   async function fileToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
@@ -269,6 +306,17 @@ export default function QuickAddModal({ onClose }: Props) {
                   <span className="font-medium">Click to upload an image</span>
                   <span className="text-xs text-gray-400">
                     PNG, JPG, GIF, WebP up to 5 MB
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1">
+                    or paste from clipboard (
+                    <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono">
+                      ⌘V
+                    </kbd>
+                    {' / '}
+                    <kbd className="px-1 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono">
+                      Ctrl+V
+                    </kbd>
+                    )
                   </span>
                 </button>
               )}
