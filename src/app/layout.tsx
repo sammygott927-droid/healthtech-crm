@@ -10,7 +10,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "HealthTech CRM",
+  title: "In the Loop",
   description: "Networking CRM with AI News Intelligence",
 };
 

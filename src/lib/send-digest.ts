@@ -47,13 +47,13 @@ export async function sendDailyDigest(
     day: 'numeric',
   })
 
-  const subject = `Daily Brief — ${today} — ${briefItems.length} stories`
+  const subject = `In the Loop — ${today} — ${briefItems.length} stories`
 
   const html = buildEmailHtml(briefItems, actionItems, today, appUrl)
 
   const resend = getResend()
   const { data, error } = await resend.emails.send({
-    from: 'HealthTech CRM <onboarding@resend.dev>',
+    from: 'In the Loop <onboarding@resend.dev>',
     to: [userEmail],
     subject,
     html,
@@ -121,6 +121,7 @@ function buildEmailHtml(
 <head><meta charset="utf-8"></head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f9fafb;">
   <div style="background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+    <p style="font-size: 11px; color: #2563eb; margin: 0 0 2px 0; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;">In the Loop</p>
     <h1 style="font-size: 20px; color: #111827; margin: 0 0 4px 0;">Your Daily Brief</h1>
     <p style="font-size: 13px; color: #9ca3af; margin: 0 0 24px 0;">${dateStr}</p>
 

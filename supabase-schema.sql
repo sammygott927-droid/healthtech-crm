@@ -1,4 +1,4 @@
--- HealthTech CRM Database Schema
+-- In the Loop — Database Schema
 -- Run this in Supabase SQL Editor (supabase.com > your project > SQL Editor)
 
 -- 1. Contacts table

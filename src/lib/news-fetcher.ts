@@ -72,7 +72,7 @@ export async function fetchRssFeedDetailed(
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
         // Some feeds reject default Next fetch UA with 403
-        'User-Agent': 'HealthTechCRM/1.0 (+https://example.com/bot)',
+        'User-Agent': 'InTheLoop/1.0 (+https://example.com/bot)',
         Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
       },
     })

@@ -34,7 +34,7 @@ export default function Sidebar() {
     <aside className="fixed inset-y-0 left-0 w-56 bg-gray-900 flex flex-col z-30">
       {/* Logo / App name */}
       <div className="px-5 py-5 border-b border-gray-800">
-        <h1 className="text-base font-bold text-white tracking-tight">HealthTech CRM</h1>
+        <h1 className="text-base font-bold text-white tracking-tight">In the Loop</h1>
         <p className="text-xs text-gray-500 mt-0.5">AI News Intelligence</p>
       </div>
 

@@ -42,7 +42,7 @@ function LoginForm() {
     // screen full-bleed without introducing a separate route group.
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-100 p-6">
       <div className="w-full max-w-sm bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-        <h1 className="text-xl font-bold text-gray-900 mb-1">HealthTech CRM</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-1">In the Loop</h1>
         <p className="text-sm text-gray-500 mb-6">Enter password to continue.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
