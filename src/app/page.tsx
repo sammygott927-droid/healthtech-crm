@@ -312,7 +312,7 @@ export default function HomePage() {
           <p className="text-center text-gray-400 py-12">Loading…</p>
         ) : tab === 'brief' ? (
           /* ═══════ DAILY BRIEF TAB — grouped newsletter layout ═══════ */
-          <div className="max-w-4xl mx-auto">
+          <div className="w-full">
             {categorizedBrief.length === 0 ? (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-10 text-center">
                 <p className="text-sm text-gray-500">
@@ -322,7 +322,7 @@ export default function HomePage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-10">
                 {CATEGORY_ORDER.map((cat) => {
                   const items = groupedBrief[cat]
                   if (items.length === 0) return null
@@ -372,7 +372,7 @@ export default function HomePage() {
           </div>
         ) : (
           /* ═══════ DAILY ACTIONS TAB — single-column stack ═══════ */
-          <div className="max-w-4xl mx-auto space-y-8">
+          <div className="w-full space-y-8">
             {actionItems.length > 0 && (
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
@@ -496,10 +496,19 @@ function CategorySection({
   const style = CATEGORY_STYLES[category]
   return (
     <section>
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`inline-block w-2.5 h-2.5 rounded-full ${style.iconBg}`} />
-        <h2 className={`text-lg font-semibold ${style.iconColor}`}>{style.label}</h2>
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${style.countBg} ${style.countText}`}>
+      {/* Colored hairline above the heading gives a clear visual divider
+          between sections even on a long scrolling feed. */}
+      <div className={`h-0.5 w-12 rounded-full mb-3 ${style.ruleColor}`} />
+      <div className="flex items-center gap-3 mb-5">
+        <span className="text-3xl leading-none" aria-hidden="true">
+          {style.emoji}
+        </span>
+        <h2 className={`text-2xl font-bold tracking-tight ${style.iconColor}`}>
+          {style.label}
+        </h2>
+        <span
+          className={`text-xs font-bold px-2.5 py-1 rounded-full ${style.countBg} ${style.countText}`}
+        >
           {items.length}
         </span>
       </div>

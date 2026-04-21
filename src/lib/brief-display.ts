@@ -28,50 +28,57 @@ export const CATEGORY_ORDER: Category[] = [
 
 interface CategoryStyle {
   label: string
-  /** Tailwind text-color for the small icon dot + section heading icon. */
+  /** Emoji glyph rendered inline in the section heading. */
+  emoji: string
+  /** Tailwind text-color for the heading label. */
   iconColor: string
-  /** Tailwind bg-color for the small filled icon dot. */
-  iconBg: string
   /** Tailwind bg-color for the category count badge. */
   countBg: string
   countText: string
+  /** Tailwind color class for the hairline separator above each section. */
+  ruleColor: string
 }
 
 export const CATEGORY_STYLES: Record<Category, CategoryStyle> = {
   funding: {
     label: 'Funding',
-    iconColor: 'text-emerald-600',
-    iconBg: 'bg-emerald-500',
+    emoji: '💰',
+    iconColor: 'text-emerald-700',
     countBg: 'bg-emerald-50',
     countText: 'text-emerald-700',
+    ruleColor: 'bg-emerald-200',
   },
   partnership: {
     label: 'Partnerships',
-    iconColor: 'text-purple-600',
-    iconBg: 'bg-purple-500',
+    emoji: '🤝',
+    iconColor: 'text-purple-700',
     countBg: 'bg-purple-50',
     countText: 'text-purple-700',
+    ruleColor: 'bg-purple-200',
   },
   market_news: {
     label: 'Market news',
-    iconColor: 'text-amber-600',
-    iconBg: 'bg-amber-500',
+    emoji: '📰',
+    iconColor: 'text-amber-800',
     countBg: 'bg-amber-50',
     countText: 'text-amber-800',
+    ruleColor: 'bg-amber-200',
   },
   thought_leadership: {
     label: 'Thought leadership',
-    iconColor: 'text-blue-600',
-    iconBg: 'bg-blue-500',
+    emoji: '💡',
+    iconColor: 'text-blue-700',
     countBg: 'bg-blue-50',
     countText: 'text-blue-700',
+    ruleColor: 'bg-blue-200',
   },
   regulatory: {
     label: 'Regulatory',
-    iconColor: 'text-red-600',
-    iconBg: 'bg-red-500',
+    emoji: '📋',
+    iconColor: 'text-red-700',
     countBg: 'bg-red-50',
     countText: 'text-red-700',
+    ruleColor: 'bg-red-200',
   },
 }
 
