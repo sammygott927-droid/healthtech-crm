@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import QuickAddModal from '@/components/QuickAddModal'
 
 interface Contact {
   id: string
@@ -25,6 +26,7 @@ export default function ContactsPage() {
   const [sectorFilter, setSectorFilter] = useState('')
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
 
   const fetchContacts = useCallback(async () => {
     setLoading(true)
@@ -72,6 +74,26 @@ export default function ContactsPage() {
             >
               Import CSV
             </Link>
+            <button
+              onClick={() => setShowQuickAdd(true)}
+              className="border border-purple-300 text-purple-700 px-4 py-2 rounded-lg font-medium hover:bg-purple-50 text-sm transition-colors inline-flex items-center gap-1.5"
+              title="Extract a contact from pasted text or a screenshot"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2 L14 8 L20 8 L15 12 L17 18 L12 14 L7 18 L9 12 L4 8 L10 8 Z" />
+              </svg>
+              Quick Add
+            </button>
             <Link
               href="/contacts/new"
               className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 text-sm transition-colors"
@@ -213,6 +235,9 @@ export default function ContactsPage() {
           </table>
         </div>
       </div>
+
+      {/* Quick Add modal (Task 10) */}
+      {showQuickAdd && <QuickAddModal onClose={() => setShowQuickAdd(false)} />}
     </div>
   )
 }

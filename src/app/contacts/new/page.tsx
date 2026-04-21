@@ -29,7 +29,53 @@ export default function NewContactPage() {
   const [suggestedTags, setSuggestedTags] = useState<string[]>([])
   const [customTag, setCustomTag] = useState('')
   const [loadingTags, setLoadingTags] = useState(false)
+  const [prefilledFrom, setPrefilledFrom] = useState<string | null>(null)
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  // One-shot read: if we arrived here from the Quick Add modal, pick up the
+  // extracted contact fields from sessionStorage and pre-fill the form.
+  // Then clear the key so a manual refresh doesn't silently replay it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('prefill') !== '1') return
+    const raw = sessionStorage.getItem('quick-add-prefill')
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw) as {
+        name?: string | null
+        company?: string | null
+        role?: 'Operator' | 'Investor' | 'Consultant' | null
+        email?: string | null
+        phone?: string | null
+        referral_source?: string | null
+        notes?: string | null
+      }
+      setForm((prev) => ({
+        ...prev,
+        name: parsed.name || prev.name,
+        company: parsed.company || prev.company,
+        role: parsed.role || prev.role,
+        email: parsed.email || prev.email,
+        phone: parsed.phone || prev.phone,
+        referral_source: parsed.referral_source || prev.referral_source,
+        initial_notes: parsed.notes || prev.initial_notes,
+      }))
+      const filled = [
+        parsed.name && 'name',
+        parsed.company && 'company',
+        parsed.role && 'role',
+        parsed.email && 'email',
+        parsed.phone && 'phone',
+        parsed.notes && 'notes',
+      ].filter(Boolean) as string[]
+      setPrefilledFrom(filled.length > 0 ? filled.join(', ') : 'no fields')
+    } catch (err) {
+      console.error('quick-add-prefill parse failed:', err)
+    } finally {
+      sessionStorage.removeItem('quick-add-prefill')
+    }
+  }, [])
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -146,6 +192,28 @@ export default function NewContactPage() {
         </Link>
 
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Add Contact</h1>
+
+        {prefilledFrom && (
+          <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 flex items-start gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="mt-0.5 flex-shrink-0"
+            >
+              <path d="M12 2 L14 8 L20 8 L15 12 L17 18 L12 14 L7 18 L9 12 L4 8 L10 8 Z" />
+            </svg>
+            <span>
+              Pre-filled from Quick Add ({prefilledFrom}). Review the fields below and edit anything that looks off before saving.
+            </span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
           <div>
