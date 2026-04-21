@@ -59,6 +59,9 @@ create table daily_briefs (
   so_what text,
   relevance_tag text,
   relevance_score integer not null default 0,
+  category text check (category is null or category in (
+    'funding', 'partnership', 'market_news', 'thought_leadership', 'regulatory'
+  )),
   contact_match_score integer,
   contact_id uuid references contacts(id) on delete set null,
   contact_match_reason text,

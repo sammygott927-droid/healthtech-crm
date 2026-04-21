@@ -26,7 +26,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('daily_briefs')
-    .select('id, headline, source_url, source_name, pub_date, so_what, relevance_tag, relevance_score, contact_match_score, contact_id, contact_match_reason, draft_email, signal_boost, status, created_at')
+    .select('id, headline, source_url, source_name, pub_date, so_what, relevance_tag, relevance_score, category, contact_match_score, contact_id, contact_match_reason, draft_email, signal_boost, status, created_at')
     .gte('created_at', startOfDay)
     .order('relevance_score', { ascending: false })
 
@@ -53,6 +53,7 @@ export async function GET() {
       so_what: r.so_what,
       relevance_tag: r.relevance_tag,
       relevance_score: r.relevance_score,
+      category: r.category,
     }))
 
   // Actions tab: contact_match_score >= 7, resolve contact name via join

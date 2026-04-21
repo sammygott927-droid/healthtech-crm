@@ -77,6 +77,21 @@ const HEALTHCARE_BROAD = /\bhealth(?:care|tech)?\b|\bmedic(?:al|ine|aid|are)\b|\
 
 // ── Interfaces ───────────────────────────────────────────────────
 
+type BriefCategory =
+  | 'funding'
+  | 'partnership'
+  | 'market_news'
+  | 'thought_leadership'
+  | 'regulatory'
+
+const CATEGORY_VALUES: BriefCategory[] = [
+  'funding',
+  'partnership',
+  'market_news',
+  'thought_leadership',
+  'regulatory',
+]
+
 interface ScoredArticle {
   headline: string
   source_url: string
@@ -85,6 +100,7 @@ interface ScoredArticle {
   so_what: string
   relevance_tag: string
   relevance_score: number
+  category: BriefCategory | null
   contact_match_score: number | null
   contact_id: string | null
   contact_match_reason: string | null
@@ -431,6 +447,7 @@ async function runDailyBrief(request: NextRequest) {
         so_what: a.so_what,
         relevance_tag: a.relevance_tag,
         relevance_score: a.relevance_score,
+        category: a.category,
         contact_match_score: a.contact_match_score,
         contact_id: a.contact_id,
         contact_match_reason: a.contact_match_reason,
@@ -632,7 +649,21 @@ For EACH article, produce:
    - "Sector: maternal health tech"
    - "Industry news: FDA regulatory"
 
-5. IF contact_match_score >= 7:
+5. category (string): Classify into EXACTLY ONE of these five buckets:
+   - "funding"             — funding rounds, fundraises, VC announcements
+   - "partnership"         — partnerships, collaborations, payer/provider deals,
+                             joint ventures, distribution agreements
+   - "regulatory"          — FDA / CMS / policy / regulation, approvals,
+                             clearances, guidance, lawsuits, settlements
+   - "thought_leadership"  — analysis, opinion, research reports,
+                             long-form pieces, interviews, data releases
+                             (think STAT features, a16z essays, Stratechery)
+   - "market_news"         — everything else: exec moves, M&A, product
+                             launches, trends, stealth-company news.
+                             Default bucket when the story doesn't cleanly
+                             fit one of the four above.
+
+6. IF contact_match_score >= 7:
    - contact_name: the matched contact's full name (MUST match a name from the contacts list exactly)
    - contact_match_reason: one sentence — why this is relevant to them specifically
    - draft_email: A complete outreach email anchored on this specific news hook. Format:
@@ -650,6 +681,7 @@ Return a JSON array with one object per article, indexed by position:
     "contact_match_score": 8,
     "so_what": "...",
     "relevance_tag": "...",
+    "category": "funding",
     "contact_name": "Jane Doe",
     "contact_match_reason": "...",
     "draft_email": "..."
@@ -660,6 +692,7 @@ Return a JSON array with one object per article, indexed by position:
     "contact_match_score": null,
     "so_what": "...",
     "relevance_tag": "...",
+    "category": "market_news",
     "contact_name": null,
     "contact_match_reason": null,
     "draft_email": null
@@ -709,6 +742,13 @@ Return ONLY valid JSON, no other text.`
         if (matched) contactId = matched.id
       }
 
+      // Category — accept only the 5 whitelisted values, null otherwise.
+      const rawCategory = typeof item.category === 'string' ? item.category.trim().toLowerCase() : ''
+      const category: BriefCategory | null =
+        CATEGORY_VALUES.includes(rawCategory as BriefCategory)
+          ? (rawCategory as BriefCategory)
+          : null
+
       results.push({
         headline: article.title,
         source_url: article.link,
@@ -717,6 +757,7 @@ Return ONLY valid JSON, no other text.`
         so_what: typeof item.so_what === 'string' ? item.so_what : '',
         relevance_tag: typeof item.relevance_tag === 'string' ? item.relevance_tag : '',
         relevance_score: relScore,
+        category,
         contact_match_score: matchScore,
         contact_id: contactId,
         contact_match_reason: typeof item.contact_match_reason === 'string' ? item.contact_match_reason : null,

@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import {
-  categorize,
+  resolveCategory,
   CATEGORY_STYLES,
+  CATEGORY_ORDER,
   buildDailySummary,
   greeting,
   avatarInitials,
@@ -12,7 +13,7 @@ import {
   type Category,
 } from '@/lib/brief-display'
 
-/* ── Interfaces matching the new /api/briefs-today response ── */
+/* ── Interfaces matching the /api/briefs-today response ── */
 
 interface BriefItem {
   id: string
@@ -23,6 +24,7 @@ interface BriefItem {
   so_what: string | null
   relevance_tag: string | null
   relevance_score: number
+  category: string | null
 }
 
 interface ActionItem {
@@ -69,8 +71,9 @@ interface FollowUpContact {
 
 type Tab = 'brief' | 'actions'
 
-// Hardcoded for now. Could come from USER_EMAIL env or a settings field later.
 const USER_FIRST_NAME = 'Sammy'
+
+type CategorizedBriefItem = BriefItem & { category_resolved: Category }
 
 export default function HomePage() {
   const [briefItems, setBriefItems] = useState<BriefItem[]>([])
@@ -164,14 +167,13 @@ export default function HomePage() {
 
   const totalActions = actionItems.length + overdue.length + upcoming.length
 
-  // Categorize each brief item once per state change; used by both the
-  // Morning-Brew-style summary line and the per-card pill/accent.
-  type CategorizedBriefItem = BriefItem & { category: Category }
+  // Resolve each brief item's category (stored first, keyword fallback
+  // for rows from before the migration).
   const categorizedBrief = useMemo<CategorizedBriefItem[]>(
     () =>
       briefItems.map((item) => ({
         ...item,
-        category: categorize({
+        category_resolved: resolveCategory(item.category, {
           headline: item.headline,
           so_what: item.so_what,
           relevance_tag: item.relevance_tag,
@@ -180,7 +182,25 @@ export default function HomePage() {
     [briefItems]
   )
 
-  const dailySummary = useMemo(() => buildDailySummary(categorizedBrief), [categorizedBrief])
+  const dailySummary = useMemo(
+    () => buildDailySummary(categorizedBrief.map((i) => ({ category: i.category_resolved }))),
+    [categorizedBrief]
+  )
+
+  // Group by category, preserving each category's internal relevance order.
+  const groupedBrief = useMemo(() => {
+    const groups: Record<Category, CategorizedBriefItem[]> = {
+      funding: [],
+      partnership: [],
+      market_news: [],
+      thought_leadership: [],
+      regulatory: [],
+    }
+    for (const item of categorizedBrief) {
+      groups[item.category_resolved].push(item)
+    }
+    return groups
+  }, [categorizedBrief])
 
   const now = new Date()
   const dateLine = now.toLocaleDateString('en-US', {
@@ -291,8 +311,8 @@ export default function HomePage() {
         {loading ? (
           <p className="text-center text-gray-400 py-12">Loading…</p>
         ) : tab === 'brief' ? (
-          /* ═══════ DAILY BRIEF TAB ═══════ */
-          <div>
+          /* ═══════ DAILY BRIEF TAB — grouped newsletter layout ═══════ */
+          <div className="max-w-4xl mx-auto">
             {categorizedBrief.length === 0 ? (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-10 text-center">
                 <p className="text-sm text-gray-500">
@@ -302,12 +322,18 @@ export default function HomePage() {
                 </p>
               </div>
             ) : (
-              <BriefGrid items={categorizedBrief} />
+              <div className="space-y-8">
+                {CATEGORY_ORDER.map((cat) => {
+                  const items = groupedBrief[cat]
+                  if (items.length === 0) return null
+                  return <CategorySection key={cat} category={cat} items={items} />
+                })}
+              </div>
             )}
 
             {/* Source debug (collapsible) */}
             {sourceDebug && sourceDebug.per_source && sourceDebug.per_source.length > 0 && (
-              <div className="mt-8 pt-4 border-t border-gray-200">
+              <div className="mt-10 pt-4 border-t border-gray-200">
                 <button
                   onClick={() => setShowSourceDebug((v) => !v)}
                   className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
@@ -345,14 +371,14 @@ export default function HomePage() {
             )}
           </div>
         ) : (
-          /* ═══════ DAILY ACTIONS TAB ═══════ */
-          <div className="space-y-8">
+          /* ═══════ DAILY ACTIONS TAB — single-column stack ═══════ */
+          <div className="max-w-4xl mx-auto space-y-8">
             {actionItems.length > 0 && (
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
                   Outreach opportunities
                 </h3>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   {actionItems.map((item) => (
                     <ActionCard
                       key={item.id}
@@ -375,7 +401,7 @@ export default function HomePage() {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
                   Overdue connections
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="space-y-3">
                   {overdue.map((c) => (
                     <Link
                       key={c.id}
@@ -404,7 +430,7 @@ export default function HomePage() {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
                   Follow-ups due this week
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="space-y-3">
                   {upcoming.map((c) => (
                     <Link
                       key={c.id}
@@ -458,89 +484,59 @@ export default function HomePage() {
   )
 }
 
-/* ═══════ Brief grid — hero card + responsive grid ═══════ */
+/* ═══════ Category section — heading + single-column card list ═══════ */
 
-type CategorizedBriefItem = BriefItem & { category: Category }
-
-function BriefGrid({ items }: { items: CategorizedBriefItem[] }) {
-  if (items.length === 0) return null
-  const [hero, ...rest] = items
-
+function CategorySection({
+  category,
+  items,
+}: {
+  category: Category
+  items: CategorizedBriefItem[]
+}) {
+  const style = CATEGORY_STYLES[category]
   return (
-    <div className="space-y-4">
-      <BriefCard item={hero} variant="hero" />
-      {rest.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {rest.map((item) => (
-            <BriefCard key={item.id} item={item} variant="standard" />
-          ))}
-        </div>
-      )}
-    </div>
+    <section>
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-block w-2.5 h-2.5 rounded-full ${style.iconBg}`} />
+        <h2 className={`text-lg font-semibold ${style.iconColor}`}>{style.label}</h2>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${style.countBg} ${style.countText}`}>
+          {items.length}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {items.map((item) => (
+          <BriefCard key={item.id} item={item} />
+        ))}
+      </div>
+    </section>
   )
 }
 
-function BriefCard({
-  item,
-  variant,
-}: {
-  item: CategorizedBriefItem
-  variant: 'hero' | 'standard'
-}) {
-  const style = CATEGORY_STYLES[item.category]
-  const isHero = variant === 'hero'
-
+function BriefCard({ item }: { item: CategorizedBriefItem }) {
   return (
-    <article
-      className={`bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 ${style.accent} hover:shadow-md hover:border-gray-300 transition-all ${
-        isHero ? 'p-6' : 'p-4 flex flex-col'
-      }`}
-    >
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <span
-          className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${style.pill}`}
+    <article className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md hover:border-gray-300 transition-all">
+      <div className="flex items-start justify-between gap-4 mb-1">
+        <a
+          href={item.source_url || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-base font-semibold text-blue-700 hover:underline leading-snug flex-1 min-w-0"
         >
-          <span>{style.icon}</span>
-          {style.label}
-        </span>
+          {item.headline}
+        </a>
         {item.relevance_tag && (
-          <span className="flex-shrink-0 text-[11px] text-gray-500 font-medium whitespace-nowrap truncate max-w-[60%]">
+          <span className="flex-shrink-0 text-xs text-gray-500 font-medium whitespace-nowrap max-w-[40%] truncate">
             {item.relevance_tag}
           </span>
         )}
       </div>
-
-      <a
-        href={item.source_url || '#'}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`text-gray-900 hover:text-blue-700 leading-snug block ${
-          isHero ? 'text-xl font-bold' : 'text-sm font-semibold'
-        }`}
-      >
-        {item.headline}
-      </a>
-
-      <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
-        {item.source_name && <span className="font-medium">{item.source_name}</span>}
-        {item.pub_date && (
-          <>
-            <span>·</span>
-            <span>{formatDate(item.pub_date)}</span>
-          </>
-        )}
-        <span>·</span>
-        <span>relevance {item.relevance_score}/10</span>
+      <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+        {item.source_name && <span>{item.source_name}</span>}
+        {item.source_name && item.pub_date && <span>·</span>}
+        {item.pub_date && <span>{formatDate(item.pub_date)}</span>}
       </div>
-
       {item.so_what && (
-        <p
-          className={`text-gray-700 mt-3 ${isHero ? 'text-base' : 'text-sm'} ${
-            isHero ? '' : 'flex-1'
-          }`}
-        >
-          {item.so_what}
-        </p>
+        <p className="text-sm text-gray-700 leading-relaxed">{item.so_what}</p>
       )}
     </article>
   )
@@ -639,12 +635,10 @@ function ActionCard({
         )}
       </div>
 
-      {/* Match reason */}
       {item.contact_match_reason && (
         <p className="px-5 text-sm text-gray-700">{item.contact_match_reason}</p>
       )}
 
-      {/* News hook */}
       <div className="px-5 py-4">
         <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
           <div className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mb-1.5">
@@ -664,7 +658,6 @@ function ActionCard({
         </div>
       </div>
 
-      {/* Draft email (collapsible) */}
       {item.draft_email && !isSent && !isDismissed && (
         <div className="px-5 pb-4">
           <button
@@ -691,7 +684,6 @@ function ActionCard({
         </div>
       )}
 
-      {/* Action buttons */}
       {!isSent && !isDismissed && (
         <div className="flex items-center gap-2 px-5 pb-4">
           <button
