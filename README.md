@@ -36,3 +36,22 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 <!-- demo branch: deployment trigger -->
+
+## Demo branch notes
+
+This branch is the public-facing demo deployment. Differences from `main`:
+
+- **`vercel.json` `crons` is empty** so no automated daily emails fire from
+  the demo. Do NOT re-enable the cron here without first stripping the
+  demo's `USER_EMAIL` env var — otherwise a real email would go out.
+  Use the in-app **"Preview Today's Digest"** button on the home page to
+  demonstrate what the cron would produce; it renders the email body
+  inline without sending anything.
+- **`USER_FIRST_NAME` is `'Demo User'`** in `src/app/page.tsx`
+  (production reads `'Sammy'`).
+- **All contact data is anonymized** — names from a curated multicultural
+  pool, emails redirected to `@example.com`, notes rewritten to strip
+  identifying biographical detail. Tags and watchlist companies remain
+  unchanged because they're needed for live news intelligence.
+- **The demo Supabase project (`In the Loop Demo`) is fully isolated**
+  from production. Different project ref, different keys.
