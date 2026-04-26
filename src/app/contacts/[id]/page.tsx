@@ -476,7 +476,7 @@ export default function ContactDetailPage() {
 
           {/* Follow-up Cadence */}
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500 w-28">Follow-up:</span>
+            <span className="text-sm text-gray-500 w-28">Follow-up cadence:</span>
             {editingCadence ? (
               <div className="flex gap-2 items-center">
                 <input

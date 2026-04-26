@@ -14,7 +14,7 @@ create table contacts (
   next_step_date date,
   email text,
   phone text,
-  follow_up_cadence_days integer default 60,
+  follow_up_cadence_days integer default 180,
   last_contact_date date,
   notes_summary text,           -- 1-2 sentence AI summary across all notes
   notes_structured jsonb,       -- Structured AI view: { "How we met": [...], "Areas of interest": [...], ... }

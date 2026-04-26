@@ -59,8 +59,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   }
 
-  // Task 9 item 6: Investor/Operator → 60 days, Consultant → 120 days.
-  const cadence = body.role === 'Consultant' ? 120 : 60
+  // Default cadence: 180 days (6 months). Overridden by body.follow_up_cadence_days
+  // if the form/API caller explicitly supplies a value.
+  const cadence =
+    typeof body.follow_up_cadence_days === 'number' && body.follow_up_cadence_days > 0
+      ? body.follow_up_cadence_days
+      : 180
 
   // Task 9 item 7: last_contact_date left BLANK by default. Only set if the
   // user explicitly provided one via the form. Previously this defaulted to

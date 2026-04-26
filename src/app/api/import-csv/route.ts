@@ -30,11 +30,9 @@ function normalizeHeader(header: string): string {
   return header.trim().toLowerCase().replace(/[\s-]+/g, '_')
 }
 
-function getCadence(role: string | undefined): number {
-  if (!role) return 60
-  const r = role.trim().toLowerCase()
-  if (r === 'consultant') return 120
-  return 60
+function getCadence(_role: string | undefined): number {
+  // Default cadence for any role on CSV import: 180 days (6 months).
+  return 180
 }
 
 export async function POST(request: NextRequest) {

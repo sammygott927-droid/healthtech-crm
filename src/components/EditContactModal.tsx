@@ -44,7 +44,7 @@ export default function EditContactModal({ contact, onClose, onSaved }: Props) {
     next_step: contact.next_step || '',
     next_step_date: contact.next_step_date || '',
     last_contact_date: contact.last_contact_date || '',
-    follow_up_cadence_days: contact.follow_up_cadence_days ?? 60,
+    follow_up_cadence_days: contact.follow_up_cadence_days ?? 180,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,7 +82,7 @@ export default function EditContactModal({ contact, onClose, onSaved }: Props) {
         next_step: form.next_step.trim() || null,
         next_step_date: form.next_step_date || null,
         last_contact_date: form.last_contact_date || null,
-        follow_up_cadence_days: Number(form.follow_up_cadence_days) || 60,
+        follow_up_cadence_days: Number(form.follow_up_cadence_days) || 180,
       }
       const res = await fetch(`/api/contacts/${contact.id}`, {
         method: 'PATCH',

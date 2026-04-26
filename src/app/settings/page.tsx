@@ -20,9 +20,9 @@ interface NewsSource {
 const DEFAULT_SETTINGS: Settings = {
   email: '',
   briefTime: '7:00 AM ET',
-  cadenceInvestor: 60,
-  cadenceOperator: 60,
-  cadenceConsultant: 120,
+  cadenceInvestor: 180,
+  cadenceOperator: 180,
+  cadenceConsultant: 180,
 }
 
 export default function SettingsPage() {
