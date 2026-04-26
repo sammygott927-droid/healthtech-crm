@@ -12,6 +12,7 @@ import {
   avatarColorClass,
   type Category,
 } from '@/lib/brief-display'
+import { formatPlainDate } from '@/lib/plain-date'
 
 /* ── Interfaces matching the /api/briefs-today response ── */
 
@@ -417,7 +418,7 @@ export default function HomePage() {
                       {c.company && <p className="text-xs text-gray-500">{c.company}</p>}
                       <p className="text-xs text-gray-400 mt-1">
                         Last:{' '}
-                        {c.last_contact_date ? new Date(c.last_contact_date).toLocaleDateString() : '—'}
+                        {formatPlainDate(c.last_contact_date)}
                       </p>
                     </Link>
                   ))}
@@ -446,7 +447,7 @@ export default function HomePage() {
                       {c.company && <p className="text-xs text-gray-500">{c.company}</p>}
                       <p className="text-xs text-gray-400 mt-1">
                         Last:{' '}
-                        {c.last_contact_date ? new Date(c.last_contact_date).toLocaleDateString() : '—'}
+                        {formatPlainDate(c.last_contact_date)}
                       </p>
                     </Link>
                   ))}

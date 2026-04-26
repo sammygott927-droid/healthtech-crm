@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import QuickAddModal from '@/components/QuickAddModal'
 import { statusBadgeClasses, BADGE_BASE, TAG_PILL, CARD, H1 } from '@/lib/ui-tokens'
+import { formatPlainDate } from '@/lib/plain-date'
 
 interface Contact {
   id: string
@@ -225,9 +226,7 @@ export default function ContactsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700">
-                      {c.last_contact_date
-                        ? new Date(c.last_contact_date).toLocaleDateString()
-                        : '—'}
+                      {formatPlainDate(c.last_contact_date)}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">

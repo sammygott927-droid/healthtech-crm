@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { parsePlainDate, todayLocal, daysBetween } from '@/lib/plain-date'
 
 export async function GET() {
   const { data: contacts, error } = await supabase
@@ -11,16 +12,26 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const today = new Date()
+  // Cadence math is calendar-day, not millisecond, so use LOCAL midnight
+  // anchors throughout. `parsePlainDate` keeps "2026-01-13" as Jan 13 even
+  // in negative-offset zones — the prior `new Date(s)` parsed it as UTC
+  // midnight, which `.toLocaleDateString()` then rolled back to Jan 12 in
+  // the US.
+  const today = todayLocal()
   const upcoming: typeof contacts = []
   const overdue: typeof contacts = []
 
   for (const c of contacts || []) {
     if (!c.last_contact_date) continue
 
-    const last = new Date(c.last_contact_date)
-    const dueDate = new Date(last.getTime() + c.follow_up_cadence_days * 24 * 60 * 60 * 1000)
-    const diffDays = Math.round((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    const last = parsePlainDate(c.last_contact_date)
+    if (!last) continue
+    const due = new Date(
+      last.getFullYear(),
+      last.getMonth(),
+      last.getDate() + c.follow_up_cadence_days
+    )
+    const diffDays = daysBetween(today, due)
 
     if (diffDays < 0) {
       overdue.push({ ...c, days_overdue: Math.abs(diffDays) } as typeof c)

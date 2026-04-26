@@ -7,6 +7,7 @@ import MaskedField from '@/components/MaskedField'
 import EditContactModal from '@/components/EditContactModal'
 import Toast, { type ToastVariant } from '@/components/Toast'
 import { statusBadgeClasses, BADGE_BASE, TAG_PILL, CARD, H1 } from '@/lib/ui-tokens'
+import { parsePlainDate, formatPlainDate, todayLocal, daysBetween } from '@/lib/plain-date'
 
 interface Tag {
   id: string
@@ -58,10 +59,12 @@ const STATUSES = ['Active', 'Warm', 'Cold', 'Dormant']
 
 function getFollowUpLabel(lastContact: string | null, cadenceDays: number): { text: string; color: string } {
   if (!lastContact) return { text: 'No contact date set', color: 'text-gray-400' }
-  const last = new Date(lastContact)
-  const due = new Date(last.getTime() + cadenceDays * 24 * 60 * 60 * 1000)
-  const today = new Date()
-  const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  // Parse the YYYY-MM-DD plain date as local midnight (no UTC shift) so the
+  // cadence math doesn't slide a day around timezone boundaries.
+  const last = parsePlainDate(lastContact)
+  if (!last) return { text: 'No contact date set', color: 'text-gray-400' }
+  const due = new Date(last.getFullYear(), last.getMonth(), last.getDate() + cadenceDays)
+  const diffDays = daysBetween(todayLocal(), due)
 
   if (diffDays < 0) return { text: `Overdue by ${Math.abs(diffDays)} days`, color: 'text-red-600' }
   if (diffDays === 0) return { text: 'Due today', color: 'text-yellow-600' }
@@ -397,9 +400,7 @@ export default function ContactDetailPage() {
             <div>
               <span className="text-gray-500">Last Contact:</span>{' '}
               <span className="text-gray-900">
-                {contact.last_contact_date
-                  ? new Date(contact.last_contact_date).toLocaleDateString()
-                  : '—'}
+                {formatPlainDate(contact.last_contact_date)}
               </span>
             </div>
           </div>
@@ -466,7 +467,7 @@ export default function ContactDetailPage() {
                 {contact.next_step || 'None set'} ✎
                 {contact.next_step_date && (
                   <span className="ml-2 text-xs text-gray-500">
-                    by {new Date(contact.next_step_date).toLocaleDateString()}
+                    by {formatPlainDate(contact.next_step_date)}
                   </span>
                 )}
               </button>
