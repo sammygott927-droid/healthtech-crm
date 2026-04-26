@@ -12,7 +12,6 @@ import {
   avatarColorClass,
   type Category,
 } from '@/lib/brief-display'
-import { formatPlainDate } from '@/lib/plain-date'
 
 /* ── Interfaces matching the /api/briefs-today response ── */
 
@@ -61,15 +60,6 @@ interface SourceDebug {
   elapsed_seconds?: number
 }
 
-interface FollowUpContact {
-  id: string
-  name: string
-  company: string | null
-  last_contact_date: string | null
-  days_until_due?: number
-  days_overdue?: number
-}
-
 type Tab = 'brief' | 'actions'
 
 const USER_FIRST_NAME = 'Sammy'
@@ -81,8 +71,6 @@ export default function HomePage() {
   const [sourceDebug, setSourceDebug] = useState<SourceDebug | null>(null)
   const [showSourceDebug, setShowSourceDebug] = useState(false)
   const [actionItems, setActionItems] = useState<ActionItem[]>([])
-  const [upcoming, setUpcoming] = useState<FollowUpContact[]>([])
-  const [overdue, setOverdue] = useState<FollowUpContact[]>([])
   const [hasRun, setHasRun] = useState(false)
   const [loading, setLoading] = useState(true)
   const [runningBrief, setRunningBrief] = useState(false)
@@ -94,19 +82,15 @@ export default function HomePage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [briefsRes, followUpsRes] = await Promise.all([
-        fetch('/api/briefs-today'),
-        fetch('/api/follow-ups'),
-      ])
+      // Daily Actions tab no longer surfaces overdue/upcoming follow-ups —
+      // those moved to /reconnect — so we only need the brief endpoint here.
+      const briefsRes = await fetch('/api/briefs-today')
       const briefsData = await briefsRes.json()
-      const followUpsData = await followUpsRes.json()
 
       setBriefItems(briefsData.brief || [])
       setSourceDebug(briefsData.source_debug || null)
       setActionItems(briefsData.actions || [])
       setHasRun(briefsData.has_run || false)
-      setUpcoming(followUpsData.upcoming || [])
-      setOverdue(followUpsData.overdue || [])
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err)
     } finally {
@@ -166,7 +150,7 @@ export default function HomePage() {
     return 'bg-gray-100 text-gray-600'
   }
 
-  const totalActions = actionItems.length + overdue.length + upcoming.length
+  const totalActions = actionItems.length
 
   // Resolve each brief item's category (stored first, keyword fallback
   // for rows from before the migration).
@@ -298,11 +282,7 @@ export default function HomePage() {
           >
             Daily Actions
             {totalActions > 0 && (
-              <span
-                className={`ml-2 inline-block text-xs px-2 py-0.5 rounded-full ${
-                  overdue.length > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
-                }`}
-              >
+              <span className="ml-2 inline-block bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-full">
                 {totalActions}
               </span>
             )}
@@ -397,65 +377,11 @@ export default function HomePage() {
               </section>
             )}
 
-            {overdue.length > 0 && (
-              <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
-                  Overdue connections
-                </h3>
-                <div className="space-y-3">
-                  {overdue.map((c) => (
-                    <Link
-                      key={c.id}
-                      href={`/contacts/${c.id}`}
-                      className="bg-white rounded-xl shadow-sm border-l-4 border-l-red-500 border border-gray-200 p-4 hover:border-red-300 transition-colors block"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded">
-                          {c.days_overdue}d overdue
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-gray-900">{c.name}</p>
-                      {c.company && <p className="text-xs text-gray-500">{c.company}</p>}
-                      <p className="text-xs text-gray-400 mt-1">
-                        Last:{' '}
-                        {formatPlainDate(c.last_contact_date)}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
+            {/* Overdue + upcoming follow-ups now live on the dedicated
+                /reconnect page (sidebar). Daily Actions only shows the
+                top 5 outreach opportunities so it stays focused. */}
 
-            {upcoming.length > 0 && (
-              <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
-                  Follow-ups due this week
-                </h3>
-                <div className="space-y-3">
-                  {upcoming.map((c) => (
-                    <Link
-                      key={c.id}
-                      href={`/contacts/${c.id}`}
-                      className="bg-white rounded-xl shadow-sm border-l-4 border-l-amber-500 border border-gray-200 p-4 hover:border-amber-300 transition-colors block"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                          {c.days_until_due === 0 ? 'Due today' : `Due in ${c.days_until_due}d`}
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-gray-900">{c.name}</p>
-                      {c.company && <p className="text-xs text-gray-500">{c.company}</p>}
-                      <p className="text-xs text-gray-400 mt-1">
-                        Last:{' '}
-                        {formatPlainDate(c.last_contact_date)}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {totalActions === 0 && (
+            {actionItems.length === 0 && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mb-3">
                   <svg
@@ -472,9 +398,13 @@ export default function HomePage() {
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </div>
-                <p className="text-base font-medium text-gray-900">All caught up.</p>
+                <p className="text-base font-medium text-gray-900">No outreach opportunities today.</p>
                 <p className="text-sm text-gray-500 mt-1">
-                  No outreach opportunities, overdue follow-ups, or upcoming reminders today.
+                  Run the brief to surface news-anchored reasons to reach out, or check{' '}
+                  <Link href="/reconnect" className="text-blue-600 hover:underline">
+                    Reconnect
+                  </Link>{' '}
+                  for contacts past their cadence.
                 </p>
               </div>
             )}
