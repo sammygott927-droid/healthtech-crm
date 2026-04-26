@@ -72,7 +72,8 @@ interface FollowUpContact {
 
 type Tab = 'brief' | 'actions'
 
-const USER_FIRST_NAME = 'Sammy'
+// Demo branch override: real platform on `main` reads "Sammy".
+const USER_FIRST_NAME = 'Demo User'
 
 type CategorizedBriefItem = BriefItem & { category_resolved: Category }
 
@@ -90,6 +91,42 @@ export default function HomePage() {
   const [expandedEmails, setExpandedEmails] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('brief')
   const [briefError, setBriefError] = useState<string | null>(null)
+
+  // Demo-branch only: in-app preview of the email digest the cron would
+  // have sent. Never actually sends mail.
+  const [showDigestPreview, setShowDigestPreview] = useState(false)
+  const [digestHtml, setDigestHtml] = useState<string | null>(null)
+  const [digestSubject, setDigestSubject] = useState<string>('')
+  const [digestLoading, setDigestLoading] = useState(false)
+  const [digestError, setDigestError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!showDigestPreview) return
+    let cancelled = false
+    setDigestLoading(true)
+    setDigestError(null)
+    setDigestHtml(null)
+    ;(async () => {
+      try {
+        const res = await fetch('/api/preview-digest')
+        if (!res.ok) {
+          const body = await res.text()
+          throw new Error(`Preview failed (${res.status}): ${body.slice(0, 200)}`)
+        }
+        const data = await res.json()
+        if (cancelled) return
+        setDigestHtml(data.html)
+        setDigestSubject(data.subject || '')
+      } catch (err) {
+        if (!cancelled) {
+          setDigestError(err instanceof Error ? err.message : 'Preview failed')
+        }
+      } finally {
+        if (!cancelled) setDigestLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [showDigestPreview])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -235,19 +272,32 @@ export default function HomePage() {
               </p>
             )}
           </div>
-          <button
-            onClick={runBrief}
-            disabled={runningBrief}
-            className="bg-white text-blue-700 px-5 py-2.5 rounded-lg text-sm font-semibold shadow hover:bg-blue-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center gap-2 flex-shrink-0"
-          >
-            {runningBrief && (
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setShowDigestPreview(true)}
+              className="bg-white/15 backdrop-blur text-white border border-white/30 px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-white/25 transition-colors flex items-center gap-2"
+              title="Render the email digest the cron would have sent — no email is actually fired"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m22 7-10 5L2 7" />
               </svg>
-            )}
-            {runningBrief ? 'Running brief…' : hasRun ? 'Refresh Brief' : 'Run Brief Now'}
-          </button>
+              Preview Today&apos;s Digest
+            </button>
+            <button
+              onClick={runBrief}
+              disabled={runningBrief}
+              className="bg-white text-blue-700 px-5 py-2.5 rounded-lg text-sm font-semibold shadow hover:bg-blue-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            >
+              {runningBrief && (
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {runningBrief ? 'Running brief…' : hasRun ? 'Refresh Brief' : 'Run Brief Now'}
+            </button>
+          </div>
         </div>
 
         {/* Error banner */}
@@ -481,6 +531,62 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* Demo branch only — preview the email digest the cron would send,
+          rendered inline. Sandboxed iframe so the email's own CSS can't
+          bleed into the surrounding app. */}
+      {showDigestPreview && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto"
+          onClick={() => setShowDigestPreview(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-8 flex flex-col"
+            style={{ maxHeight: 'calc(100vh - 4rem)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Today&apos;s Digest — preview</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  This is exactly what the daily 7am cron would email — rendered here instead. <span className="font-semibold text-emerald-700">No email is sent.</span>
+                </p>
+                {digestSubject && (
+                  <p className="text-[11px] text-gray-400 mt-1 font-mono">Subject: {digestSubject}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowDigestPreview(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden bg-gray-100 p-4">
+              {digestLoading && (
+                <p className="text-center text-sm text-gray-500 py-12">
+                  Composing digest…
+                </p>
+              )}
+              {digestError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+                  {digestError}
+                </div>
+              )}
+              {digestHtml && (
+                <iframe
+                  title="Today's digest preview"
+                  srcDoc={digestHtml}
+                  sandbox=""
+                  className="w-full h-full bg-white rounded-lg border border-gray-200"
+                  style={{ minHeight: '60vh' }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

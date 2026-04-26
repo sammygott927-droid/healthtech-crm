@@ -1,8 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/daily-brief",
-      "schedule": "0 12 * * *"
-    }
-  ]
+  "_comment_demo_branch": "Cron job DISABLED on the demo branch so no automated emails fire from the demo deployment. The production cron lives on `main` (same file, with `crons` populated) — DO NOT re-enable here without removing the demo's USER_EMAIL env var first. Use the in-app 'Preview Today's Digest' button to demonstrate what the cron would produce.",
+  "crons": []
 }

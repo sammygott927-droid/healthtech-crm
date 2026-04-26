@@ -67,7 +67,12 @@ export async function sendDailyDigest(
   return { success: true, emailId: data?.id }
 }
 
-function buildEmailHtml(
+/**
+ * Pure HTML composer — exported so the in-app "Preview Today's Digest"
+ * button (demo branch) can render the same digest the cron would have
+ * sent, without actually shipping email through Resend.
+ */
+export function buildEmailHtml(
   briefItems: BriefDigestItem[],
   actionItems: ActionDigestItem[],
   dateStr: string,
