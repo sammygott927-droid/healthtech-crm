@@ -12,6 +12,8 @@ import {
   avatarColorClass,
   type Category,
 } from '@/lib/brief-display'
+import { statusBadgeClasses, BADGE_BASE, CARD } from '@/lib/ui-tokens'
+import { formatPlainDate, todayLocal } from '@/lib/plain-date'
 
 /* ── Interfaces matching the /api/briefs-today response ── */
 
@@ -60,7 +62,26 @@ interface SourceDebug {
   elapsed_seconds?: number
 }
 
-type Tab = 'brief' | 'actions'
+interface OverdueContact {
+  id: string
+  name: string
+  company: string | null
+  status: string | null
+  last_contact_date: string | null
+  follow_up_cadence_days: number
+  days_overdue: number
+}
+
+type Tab = 'brief' | 'actions' | 'reconnect'
+
+// Reconnect-section ordering — Active first since those usually move the
+// needle most when you're triaging overdue relationships.
+const STATUS_ORDER: Array<'Active' | 'Warm' | 'Cold' | 'Dormant'> = [
+  'Active',
+  'Warm',
+  'Cold',
+  'Dormant',
+]
 
 const USER_FIRST_NAME = 'Sammy'
 
@@ -79,24 +100,72 @@ export default function HomePage() {
   const [tab, setTab] = useState<Tab>('brief')
   const [briefError, setBriefError] = useState<string | null>(null)
 
+  // Reconnect tab state — fetched alongside the brief so the count badge
+  // is accurate from first paint.
+  const [overdue, setOverdue] = useState<OverdueContact[]>([])
+  const [marking, setMarking] = useState<Set<string>>(new Set())
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Daily Actions tab no longer surfaces overdue/upcoming follow-ups —
-      // those moved to /reconnect — so we only need the brief endpoint here.
-      const briefsRes = await fetch('/api/briefs-today')
+      const [briefsRes, followUpsRes] = await Promise.all([
+        fetch('/api/briefs-today'),
+        fetch('/api/follow-ups', { cache: 'no-store' }),
+      ])
       const briefsData = await briefsRes.json()
+      const followUpsData = await followUpsRes.json()
 
       setBriefItems(briefsData.brief || [])
       setSourceDebug(briefsData.source_debug || null)
       setActionItems(briefsData.actions || [])
       setHasRun(briefsData.has_run || false)
+      // Reconnect uses only the overdue half — upcoming "due this week"
+      // is intentionally not surfaced anywhere now.
+      setOverdue(Array.isArray(followUpsData.overdue) ? followUpsData.overdue : [])
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err)
     } finally {
       setLoading(false)
     }
   }, [])
+
+  async function markAsContacted(id: string) {
+    if (marking.has(id)) return
+    setMarking((prev) => new Set(prev).add(id))
+
+    // Local-zone YYYY-MM-DD (NOT toISOString — UTC midnight would slide
+    // a day in negative-offset zones, the same bug we squashed earlier
+    // for the date pickers).
+    const t = todayLocal()
+    const yyyy = t.getFullYear()
+    const mm = String(t.getMonth() + 1).padStart(2, '0')
+    const dd = String(t.getDate()).padStart(2, '0')
+    const todayStr = `${yyyy}-${mm}-${dd}`
+
+    // Optimistic remove
+    setOverdue((prev) => prev.filter((c) => c.id !== id))
+
+    try {
+      const res = await fetch(`/api/contacts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ last_contact_date: todayStr }),
+      })
+      if (!res.ok) {
+        // Roll back if the PATCH failed — refetch to get canonical state
+        await fetchData()
+      }
+    } catch (err) {
+      console.error('Mark-as-contacted failed:', err)
+      await fetchData()
+    } finally {
+      setMarking((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -287,6 +356,21 @@ export default function HomePage() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setTab('reconnect')}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === 'reconnect'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            Reconnect
+            {overdue.length > 0 && (
+              <span className="ml-2 inline-block bg-red-50 text-red-700 ring-1 ring-inset ring-red-200 text-xs px-2 py-0.5 rounded-full font-semibold">
+                {overdue.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {loading ? (
@@ -351,7 +435,7 @@ export default function HomePage() {
               </div>
             )}
           </div>
-        ) : (
+        ) : tab === 'actions' ? (
           /* ═══════ DAILY ACTIONS TAB — single-column stack ═══════ */
           <div className="w-full space-y-8">
             {actionItems.length > 0 && (
@@ -400,12 +484,78 @@ export default function HomePage() {
                 </div>
                 <p className="text-base font-medium text-gray-900">No outreach opportunities today.</p>
                 <p className="text-sm text-gray-500 mt-1">
-                  Run the brief to surface news-anchored reasons to reach out, or check{' '}
-                  <Link href="/reconnect" className="text-blue-600 hover:underline">
+                  Run the brief to surface news-anchored reasons to reach out, or open the{' '}
+                  <button
+                    onClick={() => setTab('reconnect')}
+                    className="text-blue-600 hover:underline"
+                  >
                     Reconnect
-                  </Link>{' '}
-                  for contacts past their cadence.
+                  </button>{' '}
+                  tab for contacts past their cadence.
                 </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ═══════ RECONNECT TAB — overdue contacts grouped by status ═══════ */
+          <div className="w-full">
+            {overdue.length === 0 ? (
+              <div className={`${CARD} p-12 text-center`}>
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mb-3">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <p className="text-base font-medium text-gray-900">No overdue contacts.</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Every relationship is within its follow-up window. Nice.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-10">
+                {STATUS_ORDER.map((status) => {
+                  const items = overdue
+                    .filter((c) => c.status === status)
+                    .sort((a, b) => b.days_overdue - a.days_overdue)
+                  if (items.length === 0) return null
+                  return (
+                    <ReconnectSection
+                      key={status}
+                      status={status}
+                      items={items}
+                      marking={marking}
+                      onMark={markAsContacted}
+                    />
+                  )
+                })}
+                {/* Anything with a status outside the canonical 4 falls into "Other". */}
+                {(() => {
+                  const others = overdue
+                    .filter(
+                      (c) =>
+                        !STATUS_ORDER.includes(c.status as typeof STATUS_ORDER[number])
+                    )
+                    .sort((a, b) => b.days_overdue - a.days_overdue)
+                  if (others.length === 0) return null
+                  return (
+                    <ReconnectSection
+                      status="Other"
+                      items={others}
+                      marking={marking}
+                      onMark={markAsContacted}
+                    />
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -680,4 +830,111 @@ function formatDate(dateStr: string): string {
   } catch {
     return dateStr
   }
+}
+
+/* ═══════ Reconnect tab — section header + per-contact overdue card ═══════ */
+
+function ReconnectSection({
+  status,
+  items,
+  marking,
+  onMark,
+}: {
+  status: string
+  items: OverdueContact[]
+  marking: Set<string>
+  onMark: (id: string) => void
+}) {
+  return (
+    <section>
+      <div className="flex items-center gap-3 mb-4">
+        <span className={`${BADGE_BASE} ${statusBadgeClasses(status)}`}>{status}</span>
+        <h2 className="text-2xl font-bold tracking-tight text-gray-900">
+          {status} — {items.length} overdue
+        </h2>
+      </div>
+      <div className="space-y-3">
+        {items.map((c) => (
+          <OverdueCard
+            key={c.id}
+            contact={c}
+            isMarking={marking.has(c.id)}
+            onMark={() => onMark(c.id)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function OverdueCard({
+  contact,
+  isMarking,
+  onMark,
+}: {
+  contact: OverdueContact
+  isMarking: boolean
+  onMark: () => void
+}) {
+  return (
+    <article
+      className={`${CARD} p-5 flex items-center gap-4 hover:shadow-md hover:border-gray-300 transition-all`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href={`/contacts/${contact.id}`}
+            className="text-base font-semibold text-gray-900 hover:text-blue-700"
+          >
+            {contact.name}
+          </Link>
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 ring-1 ring-inset ring-red-200">
+            {contact.days_overdue}d overdue
+          </span>
+        </div>
+        {contact.company && (
+          <p className="text-sm text-gray-600 mt-0.5">{contact.company}</p>
+        )}
+        <p className="text-xs text-gray-400 mt-1">
+          Last contact:{' '}
+          <span className="font-medium text-gray-600">
+            {formatPlainDate(contact.last_contact_date)}
+          </span>{' '}
+          · cadence every {contact.follow_up_cadence_days} days
+        </p>
+      </div>
+      <button
+        onClick={onMark}
+        disabled={isMarking}
+        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed flex-shrink-0"
+      >
+        {isMarking ? (
+          <svg
+            className="animate-spin h-4 w-4"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        )}
+        {isMarking ? 'Marking…' : 'Mark as contacted'}
+      </button>
+    </article>
+  )
 }
