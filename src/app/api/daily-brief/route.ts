@@ -738,7 +738,7 @@ For EACH article, produce:
    - contact_match_reason: one sentence — why this is relevant to them specifically
    - draft_email: A complete outreach email anchored on this specific news hook. Format:
      Warm opener → one substance sentence about the article and why you thought of them →
-     soft ask (coffee/call/catching up) → signed Sammy.
+     soft ask (coffee/call/catching up) → signed Demo User.
      Tone: professional but personal, warm, not salesy.
      NEVER write a generic check-in — always anchor on the news.
 
