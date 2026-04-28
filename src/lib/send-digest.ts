@@ -80,7 +80,7 @@ export async function sendDailyDigest(
   return { success: true, emailId: data?.id }
 }
 
-function buildEmailHtml(
+export function buildEmailHtml(
   briefItems: BriefDigestItem[],
   actionItems: ActionDigestItem[],
   dateStr: string,
