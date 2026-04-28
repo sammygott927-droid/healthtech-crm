@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { CATEGORY_ORDER, CATEGORY_STYLES, resolveCategory, type Category } from './brief-display'
 
 /* ── Interfaces matching the v2 pipeline output ── */
 
@@ -8,6 +9,18 @@ export interface BriefDigestItem {
   source_name: string
   so_what: string
   relevance_score: number
+  category?: string | null
+}
+
+/** Inline-style colors for each category header in the email.
+ * Mirrors CATEGORY_STYLES from brief-display.ts but as raw hex (Tailwind
+ * classes don't work in HTML email — must be inline style attrs). */
+const EMAIL_CATEGORY_COLORS: Record<Category, { label: string; emoji: string; text: string; bg: string; rule: string }> = {
+  funding:            { label: 'Funding',            emoji: '💰', text: '#047857', bg: '#ecfdf5', rule: '#a7f3d0' },
+  partnership:        { label: 'Partnerships',       emoji: '🤝', text: '#6d28d9', bg: '#faf5ff', rule: '#e9d5ff' },
+  market_news:        { label: 'Market news',        emoji: '📰', text: '#92400e', bg: '#fffbeb', rule: '#fde68a' },
+  thought_leadership: { label: 'Thought leadership', emoji: '💡', text: '#1d4ed8', bg: '#eff6ff', rule: '#bfdbfe' },
+  regulatory:         { label: 'Regulatory',         emoji: '📋', text: '#b91c1c', bg: '#fef2f2', rule: '#fecaca' },
 }
 
 export interface ActionDigestItem {
@@ -78,23 +91,42 @@ export function buildEmailHtml(
   dateStr: string,
   appUrl: string
 ): string {
-  // ── Section 1: Today's Intelligence ──
+  // ── Section 1: Today's Intelligence (grouped by category) ──
+  const grouped = new Map<Category, BriefDigestItem[]>()
+  for (const item of briefItems) {
+    const cat = resolveCategory(item.category, { headline: item.headline, so_what: item.so_what })
+    const arr = grouped.get(cat) || []
+    arr.push(item)
+    grouped.set(cat, arr)
+  }
+
+  const renderItem = (item: BriefDigestItem) => `
+            <li style="margin-bottom: 12px; font-size: 14px; line-height: 1.5; color: #374151;">
+              <a href="${esc(item.source_url)}" style="font-weight: 600; color: #2563eb; text-decoration: none;">${esc(item.headline)}</a>
+              <span style="color: #6b7280; font-size: 12px;"> — ${esc(item.source_name)}</span>
+              <br/>
+              <span style="font-size: 13px; color: #4b5563;">${esc(item.so_what)}</span>
+            </li>`
+
+  const renderCategorySection = (cat: Category, items: BriefDigestItem[]) => {
+    const s = EMAIL_CATEGORY_COLORS[cat]
+    return `
+        <div style="margin-top: 18px;">
+          <div style="border-top: 2px solid ${s.rule}; padding-top: 10px; margin-bottom: 8px;">
+            <span style="font-size: 14px; font-weight: 600; color: ${s.text};">${s.emoji} ${s.label}</span>
+            <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 9999px; background: ${s.bg}; color: ${s.text}; font-size: 11px; font-weight: 600;">${items.length}</span>
+          </div>
+          <ul style="padding-left: 18px; margin: 0;">${items.map(renderItem).join('')}
+          </ul>
+        </div>`
+  }
+
   const intelligenceHtml =
     briefItems.length === 0
       ? '<p style="color: #9ca3af; font-size: 14px;">No high-relevance stories today.</p>'
-      : '<ul style="padding-left: 18px; margin: 0;">' +
-        briefItems
-          .map(
-            (item) => `
-          <li style="margin-bottom: 10px; font-size: 14px; line-height: 1.5; color: #374151;">
-            <a href="${esc(item.source_url)}" style="font-weight: 600; color: #2563eb; text-decoration: none;">${esc(item.headline)}</a>
-            <span style="color: #6b7280; font-size: 12px;"> — ${esc(item.source_name)}</span>
-            <br/>
-            <span style="font-size: 13px; color: #4b5563;">${esc(item.so_what)}</span>
-          </li>`
-          )
-          .join('') +
-        '</ul>'
+      : CATEGORY_ORDER.filter((c) => (grouped.get(c)?.length || 0) > 0)
+          .map((c) => renderCategorySection(c, grouped.get(c)!))
+          .join('')
 
   // ── Section 2: Today's Actions ──
   const actionsHtml =
