@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   const { data: rows, error } = await supabase
     .from('daily_briefs')
-    .select('id, headline, source_url, source_name, pub_date, so_what, relevance_score, contact_match_score, contact_id, contact_match_reason, status')
+    .select('id, headline, source_url, source_name, pub_date, so_what, relevance_score, category, relevance_tag, contact_match_score, contact_id, contact_match_reason, status')
     .gte('created_at', startOfDay)
     .order('relevance_score', { ascending: false })
 
@@ -44,6 +44,8 @@ export async function GET(request: NextRequest) {
       source_name: (r.source_name as string) || '',
       so_what: (r.so_what as string) || '',
       relevance_score: r.relevance_score as number,
+      category: (r.category as string | null) ?? null,
+      relevance_tag: (r.relevance_tag as string | null) ?? null,
     }))
 
   // Action items — top 5, deduped by contact (same rules as the cron path).

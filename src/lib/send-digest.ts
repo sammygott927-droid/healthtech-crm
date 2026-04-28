@@ -10,6 +10,7 @@ export interface BriefDigestItem {
   so_what: string
   relevance_score: number
   category?: string | null
+  relevance_tag?: string | null
 }
 
 /** Inline-style colors for each category header in the email.
@@ -94,7 +95,11 @@ export function buildEmailHtml(
   // ── Section 1: Today's Intelligence (grouped by category) ──
   const grouped = new Map<Category, BriefDigestItem[]>()
   for (const item of briefItems) {
-    const cat = resolveCategory(item.category, { headline: item.headline, so_what: item.so_what })
+    const cat = resolveCategory(item.category, {
+      headline: item.headline,
+      so_what: item.so_what,
+      relevance_tag: item.relevance_tag,
+    })
     const arr = grouped.get(cat) || []
     arr.push(item)
     grouped.set(cat, arr)
