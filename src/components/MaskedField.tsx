@@ -1,21 +1,33 @@
 'use client'
 
-import { useReveal } from './RevealProvider'
-
 interface MaskedFieldProps {
   value: string | null | undefined
-  // How to render the value once unlocked. Defaults to plain text.
+  // How to render the value. Defaults to plain text.
   // Use 'mailto' to render as <a href="mailto:..."> / 'tel' for phones.
   as?: 'text' | 'mailto' | 'tel'
-  // Shown when value is null/empty even after unlock.
+  // Shown when value is null/empty.
   emptyFallback?: string
   className?: string
 }
 
 /**
- * Renders `••••••••` with a Show button by default. After the user unlocks
- * the session via the reveal modal, shows the real value. If `value` is null
- * or empty, renders the empty fallback regardless of lock state.
+ * DEMO BRANCH OVERRIDE.
+ *
+ * Production (`main`) version of this component renders `••••••••` plus a
+ * "Show" button until the user unlocks the session via the reveal modal
+ * (gated server-side by REVEAL_PASSWORD). That makes sense for production
+ * where the email/phone columns hold real PII.
+ *
+ * On the demo branch every contact's email is the synthetic
+ * firstname.lastname@example.com address from the curated name pool —
+ * there is nothing to protect, and the Show-then-modal friction gets in
+ * the way of a professor reviewing the demo. So we no-op the gate here:
+ * always render the value plainly.
+ *
+ * The RevealProvider and /api/reveal-check route are intentionally left
+ * intact so the Sidebar's lock-and-logout flow (which also uses
+ * useReveal) keeps working, and any future cherry-pick between branches
+ * doesn't cascade across multiple files.
  */
 export default function MaskedField({
   value,
@@ -23,25 +35,8 @@ export default function MaskedField({
   emptyFallback = '—',
   className = '',
 }: MaskedFieldProps) {
-  const { unlocked, requestUnlock } = useReveal()
-
   if (!value) {
     return <span className={className}>{emptyFallback}</span>
-  }
-
-  if (!unlocked) {
-    return (
-      <span className={`inline-flex items-center gap-2 ${className}`}>
-        <span className="font-mono text-gray-400 tracking-wider select-none">••••••••</span>
-        <button
-          type="button"
-          onClick={() => requestUnlock()}
-          className="text-xs text-blue-600 hover:underline"
-        >
-          Show
-        </button>
-      </span>
-    )
   }
 
   if (as === 'mailto') {
