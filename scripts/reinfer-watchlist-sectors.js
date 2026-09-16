@@ -192,7 +192,7 @@ async function inferSector(row) {
   let response
   try {
     response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       messages: [{ role: 'user', content: buildPrompt(row) }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
@@ -253,7 +253,7 @@ async function preflight() {
   console.log('Preflight: testing Anthropic API (no tools)...')
   try {
     const r = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 10,
       messages: [{ role: 'user', content: 'Reply with just: ok' }],
     })
@@ -268,7 +268,7 @@ async function preflight() {
   console.log('Preflight: testing web_search tool...')
   try {
     const r = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 200,
       messages: [{ role: 'user', content: 'Use web_search to find what year it currently is, then reply with just the year number.' }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],

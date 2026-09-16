@@ -191,7 +191,7 @@ Return ONLY a JSON array of tag strings.`
 async function callClaudeForTags(prompt: string): Promise<string[]> {
   try {
     const response = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
     })

@@ -71,7 +71,7 @@ confidence is a number between 0 and 1. Use ≥ 0.7 only when you are confident 
   let text: string
   try {
     const response = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 200,
       messages: [{ role: 'user', content: prompt }],
     })
@@ -163,7 +163,7 @@ No JSON, no quotes, no explanation, no preamble.`
   let text: string
   try {
     const apiCall = getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 800,
       messages: [{ role: 'user', content: prompt }],
       tools: [

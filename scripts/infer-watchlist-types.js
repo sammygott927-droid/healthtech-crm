@@ -143,7 +143,7 @@ confidence is a number between 0 and 1. Use ≥ 0.7 only when you are confident 
   let text
   try {
     const r = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 200,
       messages: [{ role: 'user', content: prompt }],
     })
@@ -207,7 +207,7 @@ No JSON, no quotes, no explanation, no preamble.`
   let text
   try {
     const apiCall = anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 800,
       messages: [{ role: 'user', content: prompt }],
       tools: [
@@ -262,7 +262,7 @@ async function preflight() {
   console.log('Preflight: testing Anthropic API (no tools)...')
   try {
     const r = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 10,
       messages: [{ role: 'user', content: 'Reply with just: ok' }],
     })
@@ -279,7 +279,7 @@ async function preflight() {
   console.log('Preflight: testing web_search tool (used by tier 2)...')
   try {
     const r = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 200,
       messages: [
         { role: 'user', content: 'Use web_search to find what year it currently is, then reply with just the year number.' },
